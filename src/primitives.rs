@@ -1,6 +1,7 @@
 use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
 
 use crate::{
+    ciphersuite::*,
     error::InternalError,
     keypair::{KeyPair, PublicKey, SecretKey},
 };
@@ -36,7 +37,7 @@ pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair, InternalError
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-voprf-07.html#section-4.1
 fn hash_to_scalar(input: &[&[u8]], dst: &[&[u8]]) -> Result<Scalar, InternalError> {
     let mut uniform_bytes: [u8; 64] = [0; 64];
-    ExpandMsgXmd::<sha2::Sha512>::expand_message(input, dst, 64)
+    ExpandMsgXmd::<Hash>::expand_message(input, dst, 64)
         .map_err(|_| InternalError::Custom("cannot expand message (XMD)"))?
         .fill_bytes(&mut uniform_bytes);
 

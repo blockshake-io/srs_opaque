@@ -1,11 +1,10 @@
 use blstrs::{pairing, Compress, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 use ff::Field;
-use hkdf::{Hkdf, HkdfExtract};
-use hmac::{Hmac, Mac};
+use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
-use sha2::{Digest, Sha512};
 
 use crate::{
+    ciphersuite::*,
     error::InternalError,
     keypair::PublicKey,
     messages::{RegistrationRequest, RegistrationResponse},
@@ -17,22 +16,11 @@ use crate::{
 // ========= //
 ///////////////
 
-pub const G2_LEN: u32 = 96;
-pub const LEN_OPRF: usize = 64;
-pub const LEN_HASH: usize = LEN_OPRF;
-pub const LEN_MAC: usize = LEN_OPRF;
-pub const LEN_NONCE: usize = 32;
-pub const LEN_SEED: usize = 32;
-pub const LEN_KE_PK: usize = 32;
-pub const DST: &[u8] = b"opaque";
-
 const STR_MASKING_KEY: &[u8; 10] = b"MaskingKey";
 const STR_AUTH_KEY: &[u8; 7] = b"AuthKey";
 const STR_EXPORT_KEY: &[u8; 9] = b"ExportKey";
 const STR_PRIVATE_KEY: &[u8; 10] = b"PrivateKey";
 const STR_DERIVE_DIFFIE_HELLMAN: &[u8; 33] = b"OPAQUE-DeriveDiffieHellmanKeyPair";
-
-pub type Hash = [u8; LEN_HASH];
 
 /// Options for specifying custom identifiers
 #[derive(Clone, Copy, Debug, Default)]
@@ -62,13 +50,13 @@ impl CleartextCredentials {
 }
 
 pub struct Envelope {
-    pub nonce: [u8; LEN_HASH],
-    pub auth_tag: [u8; LEN_MAC],
+    pub nonce: Digest,
+    pub auth_tag: AuthCode,
 }
 
 pub struct RegistrationRecord {
     pub envelope: Envelope,
-    pub masking_key: Hash,
+    pub masking_key: Digest,
     pub client_public_key: PublicKey,
 }
 
@@ -110,7 +98,7 @@ impl<'a> ClientRegistrationFlow<'a> {
     pub fn finish(
         &self,
         response: &RegistrationResponse,
-    ) -> Result<(RegistrationRecord, Hash), InternalError> {
+    ) -> Result<(RegistrationRecord, Digest), InternalError> {
         let blinding_key = &self
             .blinding_key
             .ok_or(InternalError::Custom("not initialized"))?;
@@ -129,18 +117,18 @@ impl<'a> ClientRegistrationFlow<'a> {
 
     pub fn store<R: CryptoRng + RngCore>(
         rng: &mut R,
-        randomized_pwd: &Hkdf<Sha512>,
+        randomized_pwd: &Kdf,
         server_public_key: &PublicKey,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-    ) -> Result<(RegistrationRecord, Hash), InternalError> {
-        let mut nonce: Hash = [0; LEN_HASH];
+    ) -> Result<(RegistrationRecord, Digest), InternalError> {
+        let mut nonce: Digest = [0; LEN_HASH];
         rng.fill_bytes(&mut nonce);
 
-        let masking_key: Hash = Self::expand(randomized_pwd, STR_MASKING_KEY)?;
-        let auth_key: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_AUTH_KEY])?;
-        let export_key: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_EXPORT_KEY])?;
-        let seed: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_PRIVATE_KEY])?;
+        let masking_key: Digest = Self::expand(randomized_pwd, STR_MASKING_KEY)?;
+        let auth_key: Digest = Self::expand_multi(randomized_pwd, &[&nonce, STR_AUTH_KEY])?;
+        let export_key: Digest = Self::expand_multi(randomized_pwd, &[&nonce, STR_EXPORT_KEY])?;
+        let seed: Digest = Self::expand_multi(randomized_pwd, &[&nonce, STR_PRIVATE_KEY])?;
 
         let client_keypair = primitives::derive_keypair(&seed, STR_DERIVE_DIFFIE_HELLMAN)?;
 
@@ -156,10 +144,9 @@ impl<'a> ClientRegistrationFlow<'a> {
 
         let aad = [&nonce[..], &cleartext_credentials.serialize()[..]].concat();
 
-        let mut hmac =
-            Hmac::<Sha512>::new_from_slice(&auth_key[..]).map_err(|_| InternalError::HmacError)?;
+        let mut hmac = Mac::new_from_slice(&auth_key[..]).map_err(|_| InternalError::HmacError)?;
         hmac.update(&aad[..]);
-        let auth_tag: [u8; LEN_MAC] = hmac.finalize().into_bytes().into();
+        let auth_tag = hmac.finalize().into_bytes().into();
 
         let envelope = Envelope {
             nonce: nonce,
@@ -210,15 +197,14 @@ impl<'a> ClientRegistrationFlow<'a> {
     pub fn oprf_finalize(
         evaluated_element: &Gt,
         blinding_key: &Scalar,
-    ) -> Result<[u8; LEN_OPRF], InternalError> {
+    ) -> Result<Digest, InternalError> {
         let y = evaluated_element * Self::invert_scalar(blinding_key)?;
         let mut bytes = Vec::new();
         y.write_compressed(&mut bytes).unwrap();
-        let hash: [u8; LEN_HASH] = Sha512::digest(bytes)
+        Ok(Hash::digest(bytes)
             .as_slice()
             .try_into()
-            .expect("Wrong length");
-        Ok(hash)
+            .expect("Wrong length"))
     }
 
     pub fn invert_scalar(scalar: &Scalar) -> Result<Scalar, InternalError> {
@@ -230,28 +216,28 @@ impl<'a> ClientRegistrationFlow<'a> {
         }
     }
 
-    pub fn stretch(input: &[u8]) -> Result<Hash, InternalError> {
+    pub fn stretch(input: &[u8]) -> Result<Digest, InternalError> {
         let argon2 = argon2::Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(1024, 1, 1, Some(LEN_OPRF)).unwrap(),
+            argon2::Params::new(1024, 1, 1, Some(LEN_HASH)).unwrap(),
         );
-        let mut output = [0; LEN_OPRF];
+        let mut output = [0; LEN_HASH];
         argon2
             .hash_password_into(&input, &[0; argon2::RECOMMENDED_SALT_LEN], &mut output)
             .map_err(|_| InternalError::KsfError)?;
         Ok(output)
     }
 
-    pub fn derive_key(oprf_output: &[u8]) -> Result<(Hash, Hkdf<Sha512>), InternalError> {
+    pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf), InternalError> {
         let stretched_oprf_output = Self::stretch(&oprf_output)?;
 
-        let mut hkdf = HkdfExtract::<Sha512>::new(None);
+        let mut hkdf = HkdfExtract::<Hash>::new(None);
         hkdf.input_ikm(&oprf_output);
         hkdf.input_ikm(&stretched_oprf_output);
         let (randomized_pwd, randomized_pwd_hasher) = hkdf.finalize();
 
-        let randomized_pwd: Hash = randomized_pwd
+        let randomized_pwd: Digest = randomized_pwd
             .as_slice()
             .try_into()
             .map_err(|_| InternalError::Custom("cannot convert HKDF output to array"))?;
@@ -259,15 +245,12 @@ impl<'a> ClientRegistrationFlow<'a> {
         Ok((randomized_pwd, randomized_pwd_hasher))
     }
 
-    pub fn expand(hkdf: &Hkdf<Sha512>, info: &[u8]) -> Result<[u8; LEN_HASH], InternalError> {
+    pub fn expand(hkdf: &Kdf, info: &[u8]) -> Result<Digest, InternalError> {
         Self::expand_multi(hkdf, &[info])
     }
 
-    pub fn expand_multi(
-        hkdf: &Hkdf<Sha512>,
-        info: &[&[u8]],
-    ) -> Result<[u8; LEN_HASH], InternalError> {
-        let mut buf: Hash = [0; LEN_HASH];
+    pub fn expand_multi(hkdf: &Kdf, info: &[&[u8]]) -> Result<Digest, InternalError> {
+        let mut buf: Digest = [0; LEN_HASH];
         hkdf.expand_multi_info(info, &mut buf[..])
             .map_err(|_| InternalError::HkdfError)?;
         Ok(buf)
