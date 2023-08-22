@@ -12,3 +12,6 @@ ff = "0.13.0"
 sha2 = "0.10"
 argon2 = "0.5.1"
 hkdf = "0.12.3"
+hmac = "0.12.1"
+curve25519-dalek = "4.0.0"
+elliptic-curve = { version = "0.13.5", features = ["hash2curve"] }

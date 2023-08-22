@@ -1,48 +1,194 @@
 use blstrs::{pairing, Compress, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 use ff::Field;
 use hkdf::{Hkdf, HkdfExtract};
+use hmac::{Hmac, Mac};
+use rand::{CryptoRng, RngCore};
 use sha2::{Digest, Sha512};
 
 use crate::{
     error::InternalError,
+    keypair::PublicKey,
     messages::{RegistrationRequest, RegistrationResponse},
+    primitives,
 };
 
+///////////////
+// Constants //
+// ========= //
+///////////////
+
 pub const G2_LEN: u32 = 96;
-pub const OPRF_LEN: usize = 64;
-pub const HASH_LEN: usize = OPRF_LEN;
+pub const LEN_OPRF: usize = 64;
+pub const LEN_HASH: usize = LEN_OPRF;
+pub const LEN_MAC: usize = LEN_OPRF;
+pub const LEN_NONCE: usize = 32;
+pub const LEN_SEED: usize = 32;
+pub const LEN_KE_PK: usize = 32;
 pub const DST: &[u8] = b"opaque";
 
-pub type Hash = [u8; HASH_LEN];
+const STR_MASKING_KEY: &[u8; 10] = b"MaskingKey";
+const STR_AUTH_KEY: &[u8; 7] = b"AuthKey";
+const STR_EXPORT_KEY: &[u8; 9] = b"ExportKey";
+const STR_PRIVATE_KEY: &[u8; 10] = b"PrivateKey";
+const STR_DERIVE_DIFFIE_HELLMAN: &[u8; 33] = b"OPAQUE-DeriveDiffieHellmanKeyPair";
+
+pub type Hash = [u8; LEN_HASH];
+
+/// Options for specifying custom identifiers
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Identifiers<'a> {
+    /// Client identifier
+    pub client: Option<&'a [u8]>,
+    /// Server identifier
+    pub server: Option<&'a [u8]>,
+}
+
+pub struct CleartextCredentials {
+    pub server_public_key: [u8; LEN_KE_PK],
+    pub server_identity: Vec<u8>,
+    pub client_identity: Vec<u8>,
+}
+
+impl CleartextCredentials {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::with_capacity(
+            self.server_public_key.len() + self.server_identity.len() + self.client_identity.len(),
+        );
+        buf.extend(self.server_public_key);
+        buf.extend(&self.server_identity[..]);
+        buf.extend(&self.client_identity[..]);
+        buf
+    }
+}
+
+pub struct Envelope {
+    pub nonce: [u8; LEN_HASH],
+    pub auth_tag: [u8; LEN_MAC],
+}
+
+pub struct RegistrationRecord {
+    pub envelope: Envelope,
+    pub masking_key: Hash,
+    pub client_public_key: PublicKey,
+}
 
 pub struct BlindResult {
     pub blinding_key: Scalar,
     pub blinded_element: G2Affine,
 }
 
-pub struct ClientRegistrationFlow {
-    blinding_key: Scalar,
+pub struct ClientRegistrationFlow<'a> {
+    username: &'a str,
+    server_public_key: &'a PublicKey,
+    server_identity: Option<&'a str>,
+    blinding_key: Option<Scalar>,
 }
 
-impl ClientRegistrationFlow {
-    pub fn start(username: &str, password: &str) -> (Self, RegistrationRequest) {
-        let result = Self::oprf_blind(password.as_bytes());
-        (
-            ClientRegistrationFlow {
-                blinding_key: result.blinding_key,
-            },
-            RegistrationRequest {
-                username: username.to_string(),
-                blinded_element: result.blinded_element,
-            },
+impl<'a> ClientRegistrationFlow<'a> {
+    pub fn new(
+        username: &'a str,
+        server_public_key: &'a PublicKey,
+        server_identity: Option<&'a str>,
+    ) -> ClientRegistrationFlow<'a> {
+        ClientRegistrationFlow {
+            username: username,
+            server_public_key,
+            server_identity,
+            blinding_key: None,
+        }
+    }
+
+    pub fn start(&mut self, password: &[u8]) -> RegistrationRequest {
+        let result = Self::oprf_blind(password);
+        self.blinding_key = Some(result.blinding_key);
+        RegistrationRequest {
+            username: self.username.to_string(),
+            blinded_element: result.blinded_element,
+        }
+    }
+
+    pub fn finish(
+        &self,
+        response: &RegistrationResponse,
+    ) -> Result<(RegistrationRecord, Hash), InternalError> {
+        let blinding_key = &self
+            .blinding_key
+            .ok_or(InternalError::Custom("not initialized"))?;
+        let oprf_output = Self::oprf_finalize(&response.evaluated_element, blinding_key)?;
+        let (_, randomized_pwd_hasher) = Self::derive_key(&oprf_output)?;
+
+        let mut client_rng = rand::thread_rng();
+        Self::store(
+            &mut client_rng,
+            &randomized_pwd_hasher,
+            self.server_public_key,
+            self.server_identity,
+            Some(&self.username[..]),
         )
     }
 
-    pub fn finish(&self, response: &RegistrationResponse) -> Result<[u8; 32], InternalError> {
-        let oprf_output = Self::oprf_finalize(&response.evaluated_element, &self.blinding_key)?;
-        let (randomized_pwd, randomized_pwd_hasher) = Self::derive_key(&oprf_output)?;
+    pub fn store<R: CryptoRng + RngCore>(
+        rng: &mut R,
+        randomized_pwd: &Hkdf<Sha512>,
+        server_public_key: &PublicKey,
+        server_identity: Option<&str>,
+        client_identity: Option<&str>,
+    ) -> Result<(RegistrationRecord, Hash), InternalError> {
+        let mut nonce: Hash = [0; LEN_HASH];
+        rng.fill_bytes(&mut nonce);
 
-        todo!();
+        let masking_key: Hash = Self::expand(randomized_pwd, STR_MASKING_KEY)?;
+        let auth_key: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_AUTH_KEY])?;
+        let export_key: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_EXPORT_KEY])?;
+        let seed: Hash = Self::expand_multi(randomized_pwd, &[&nonce, STR_PRIVATE_KEY])?;
+
+        let client_keypair = primitives::derive_keypair(&seed, STR_DERIVE_DIFFIE_HELLMAN)?;
+
+        let identifiers = Identifiers {
+            client: client_identity.map(|x| x.as_bytes()),
+            server: server_identity.map(|x| x.as_bytes()),
+        };
+        let cleartext_credentials = Self::create_cleartext_credentials(
+            &identifiers,
+            &server_public_key,
+            &client_keypair.public_key,
+        );
+
+        let aad = [&nonce[..], &cleartext_credentials.serialize()[..]].concat();
+
+        let mut hmac =
+            Hmac::<Sha512>::new_from_slice(&auth_key[..]).map_err(|_| InternalError::HmacError)?;
+        hmac.update(&aad[..]);
+        let auth_tag: [u8; LEN_MAC] = hmac.finalize().into_bytes().into();
+
+        let envelope = Envelope {
+            nonce: nonce,
+            auth_tag: auth_tag,
+        };
+
+        let registration_record = RegistrationRecord {
+            envelope,
+            masking_key,
+            client_public_key: client_keypair.public_key,
+        };
+
+        Ok((registration_record, export_key))
+    }
+
+    fn create_cleartext_credentials(
+        ids: &Identifiers,
+        server_public_key: &PublicKey,
+        client_public_key: &PublicKey,
+    ) -> CleartextCredentials {
+        let client_public_key = client_public_key.serialize();
+        let server_public_key = server_public_key.serialize();
+        let client_id = ids.client.unwrap_or(&client_public_key);
+        let server_id = ids.server.unwrap_or(&server_public_key);
+        CleartextCredentials {
+            server_public_key,
+            server_identity: Vec::from(server_id),
+            client_identity: Vec::from(client_id),
+        }
     }
 
     pub fn oprf_blind(password: &[u8]) -> BlindResult {
@@ -64,11 +210,11 @@ impl ClientRegistrationFlow {
     pub fn oprf_finalize(
         evaluated_element: &Gt,
         blinding_key: &Scalar,
-    ) -> Result<[u8; OPRF_LEN], InternalError> {
+    ) -> Result<[u8; LEN_OPRF], InternalError> {
         let y = evaluated_element * Self::invert_scalar(blinding_key)?;
         let mut bytes = Vec::new();
         y.write_compressed(&mut bytes).unwrap();
-        let hash: [u8; HASH_LEN] = Sha512::digest(bytes)
+        let hash: [u8; LEN_HASH] = Sha512::digest(bytes)
             .as_slice()
             .try_into()
             .expect("Wrong length");
@@ -88,9 +234,9 @@ impl ClientRegistrationFlow {
         let argon2 = argon2::Argon2::new(
             argon2::Algorithm::Argon2id,
             argon2::Version::V0x13,
-            argon2::Params::new(1024, 1, 1, Some(OPRF_LEN)).unwrap(),
+            argon2::Params::new(1024, 1, 1, Some(LEN_OPRF)).unwrap(),
         );
-        let mut output = [0; OPRF_LEN];
+        let mut output = [0; LEN_OPRF];
         argon2
             .hash_password_into(&input, &[0; argon2::RECOMMENDED_SALT_LEN], &mut output)
             .map_err(|_| InternalError::KsfError)?;
@@ -112,15 +258,48 @@ impl ClientRegistrationFlow {
 
         Ok((randomized_pwd, randomized_pwd_hasher))
     }
+
+    pub fn expand(hkdf: &Hkdf<Sha512>, info: &[u8]) -> Result<[u8; LEN_HASH], InternalError> {
+        Self::expand_multi(hkdf, &[info])
+    }
+
+    pub fn expand_multi(
+        hkdf: &Hkdf<Sha512>,
+        info: &[&[u8]],
+    ) -> Result<[u8; LEN_HASH], InternalError> {
+        let mut buf: Hash = [0; LEN_HASH];
+        hkdf.expand_multi_info(info, &mut buf[..])
+            .map_err(|_| InternalError::HkdfError)?;
+        Ok(buf)
+    }
 }
 
-pub struct ServerRegistrationFlow;
+pub struct ServerRegistrationFlow<'a> {
+    oprf_key: &'a Scalar,
+}
 
-impl ServerRegistrationFlow {
-    pub fn create_registration_response(request: &RegistrationRequest, oprf_key: &Scalar) -> Gt {
+impl<'a> ServerRegistrationFlow<'a> {
+    pub fn new(oprf_key: &'a Scalar) -> ServerRegistrationFlow {
+        ServerRegistrationFlow { oprf_key }
+    }
+
+    pub fn start(&self, request: &RegistrationRequest) -> RegistrationResponse {
+        Self::create_registration_response(request, &self.oprf_key)
+    }
+
+    pub fn finish(&self, _record: &RegistrationRecord) {
+        // we need to decide what to do here
+    }
+
+    pub fn create_registration_response(
+        request: &RegistrationRequest,
+        oprf_key: &Scalar,
+    ) -> RegistrationResponse {
         let t = G1Projective::hash_to_curve(request.username.as_bytes(), DST, &[]);
         let t = G1Affine::from(t);
         let x_tilde = pairing(&t, &request.blinded_element);
-        x_tilde * oprf_key
+        RegistrationResponse {
+            evaluated_element: x_tilde * oprf_key,
+        }
     }
 }
