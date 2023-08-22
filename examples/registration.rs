@@ -14,9 +14,13 @@ fn main() -> Result<(), InternalError> {
     // STEP 1: initiate registration on client
     let username = "my_username";
     let password = b"password";
-    let mut client_flow =
-        ClientRegistrationFlow::new(username, &server_keypair.public_key, Some(server_identity));
-    let registration_request = client_flow.start(password);
+    let mut client_flow = ClientRegistrationFlow::new(
+        username,
+        password,
+        &server_keypair.public_key,
+        Some(server_identity),
+    );
+    let registration_request = client_flow.start();
 
     // STEP 2: proceed registration on server, evaluate OPRF
     let server_flow = ServerRegistrationFlow::new(&server_oprf_key);

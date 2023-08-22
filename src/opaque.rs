@@ -8,7 +8,7 @@ use crate::{
     error::InternalError,
     keypair::PublicKey,
     messages::{RegistrationRequest, RegistrationResponse},
-    primitives,
+    primitives::{self, i2osp_2},
 };
 
 ///////////////
@@ -21,6 +21,7 @@ const STR_AUTH_KEY: &[u8; 7] = b"AuthKey";
 const STR_EXPORT_KEY: &[u8; 9] = b"ExportKey";
 const STR_PRIVATE_KEY: &[u8; 10] = b"PrivateKey";
 const STR_DERIVE_DIFFIE_HELLMAN: &[u8; 33] = b"OPAQUE-DeriveDiffieHellmanKeyPair";
+const STR_FINALIZE: [u8; 8] = *b"Finalize";
 
 /// Options for specifying custom identifiers
 #[derive(Clone, Copy, Debug, Default)]
@@ -67,6 +68,7 @@ pub struct BlindResult {
 
 pub struct ClientRegistrationFlow<'a> {
     username: &'a str,
+    password: &'a [u8],
     server_public_key: &'a PublicKey,
     server_identity: Option<&'a str>,
     blinding_key: Option<Scalar>,
@@ -75,19 +77,21 @@ pub struct ClientRegistrationFlow<'a> {
 impl<'a> ClientRegistrationFlow<'a> {
     pub fn new(
         username: &'a str,
+        password: &'a [u8],
         server_public_key: &'a PublicKey,
         server_identity: Option<&'a str>,
     ) -> ClientRegistrationFlow<'a> {
         ClientRegistrationFlow {
             username: username,
+            password: password,
             server_public_key,
             server_identity,
             blinding_key: None,
         }
     }
 
-    pub fn start(&mut self, password: &[u8]) -> RegistrationRequest {
-        let result = Self::oprf_blind(password);
+    pub fn start(&mut self) -> RegistrationRequest {
+        let result = Self::oprf_blind(self.password);
         self.blinding_key = Some(result.blinding_key);
         RegistrationRequest {
             username: self.username.to_string(),
@@ -102,7 +106,8 @@ impl<'a> ClientRegistrationFlow<'a> {
         let blinding_key = &self
             .blinding_key
             .ok_or(InternalError::Custom("not initialized"))?;
-        let oprf_output = Self::oprf_finalize(&response.evaluated_element, blinding_key)?;
+        let oprf_output =
+            Self::oprf_finalize(self.password, &response.evaluated_element, blinding_key)?;
         let (_, randomized_pwd_hasher) = Self::derive_key(&oprf_output)?;
 
         let mut client_rng = rand::thread_rng();
@@ -195,14 +200,22 @@ impl<'a> ClientRegistrationFlow<'a> {
     }
 
     pub fn oprf_finalize(
+        input: &[u8],
         evaluated_element: &Gt,
         blinding_key: &Scalar,
     ) -> Result<Digest, InternalError> {
         let y = evaluated_element * Self::invert_scalar(blinding_key)?;
-        let mut bytes = Vec::new();
-        y.write_compressed(&mut bytes).unwrap();
-        Ok(Hash::digest(bytes)
-            .as_slice()
+        let mut serialized_element = Vec::new();
+        y.write_compressed(&mut serialized_element)
+            .map_err(|_| InternalError::Custom("cannot serialize element"))?;
+
+        Ok(Hash::new()
+            .chain_update(i2osp_2(input.len())?)
+            .chain_update(input)
+            .chain_update(i2osp_2(serialized_element.len())?)
+            .chain_update(serialized_element)
+            .chain_update(STR_FINALIZE)
+            .finalize()
             .try_into()
             .expect("Wrong length"))
     }
