@@ -2,7 +2,7 @@ use blstrs::Scalar;
 use ff::Field;
 use srs_opaque::{
     error::InternalError,
-    opaque::{ClientRegistrationFlow, ServerRegistrationFlow},
+    opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
     primitives::derive_keypair,
 };
 
@@ -43,6 +43,40 @@ fn main() -> Result<(), InternalError> {
     );
     println!("server oprf key: {:?}", server_oprf_key);
     println!("client export key: {:?}", export_key);
+
+    ///////////////
+    //// LOGIN ////
+    ///////////////
+
+    let mut rng = rand::thread_rng();
+
+    // STEP 1: initiate registration on client
+
+    let mut client_flow = ClientLoginFlow::new(username, password);
+    let ke1 = client_flow.start(&mut rng)?;
+
+    // STEP 2: evaluate login on server
+
+    let mut server_flow = ServerLoginFlow::new(
+        &server_keypair.public_key,
+        Some(server_identity),
+        &server_keypair,
+        &registration_record,
+        &server_oprf_key,
+        &ke1,
+        username,
+    );
+    let ke2 = server_flow.start()?;
+
+    // STEP 3: finalize on client
+    let (ke3, client_session_key, export_key) = client_flow.finish(Some(server_identity), &ke2)?;
+
+    // STEP 4: finalize on server
+    let server_session_key = server_flow.finish(&ke3)?;
+
+    println!("client_session_key: {:?}", client_session_key);
+    println!("server_session_key: {:?}", server_session_key);
+    println!("export_key: {:?}", export_key);
 
     Ok(())
 }

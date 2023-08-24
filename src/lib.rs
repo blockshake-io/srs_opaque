@@ -3,4 +3,5 @@ pub mod error;
 pub mod keypair;
 pub mod messages;
 pub mod opaque;
+pub mod oprf;
 pub mod primitives;

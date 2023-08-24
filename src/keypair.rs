@@ -1,10 +1,21 @@
-use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
+use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar, RistrettoPoint};
+
+use crate::error::InternalError;
 
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {
     pub fn serialize(&self) -> [u8; 32] {
-        self.0.compress().as_bytes().clone()
+        self.0.compress().to_bytes()
+    }
+
+    pub fn deserialize(buf: &[u8]) -> Result<PublicKey, InternalError> {
+        let foo = CompressedRistretto::from_slice(&buf[..])
+            .map_err(|_| InternalError::DeserializeError)?;
+        match foo.decompress() {
+            Some(pk) => Ok(PublicKey(pk)),
+            None => Err(InternalError::DeserializeError),
+        }
     }
 }
 

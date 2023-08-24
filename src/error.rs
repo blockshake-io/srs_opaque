@@ -12,4 +12,14 @@ pub enum InternalError {
     HmacError,
     /// Could not derive a key
     DeriveKeyError,
+    /// Could not compute a hash
+    HashError,
+    /// Could not serialize an object
+    SerializeError,
+    /// Could not de-serialize an object
+    DeserializeError,
+    /// Could not recover envelope
+    EnvelopeRecoveryError,
+    /// Could not authenticate user at server
+    ServerAuthenticationError,
 }
