@@ -20,6 +20,19 @@ pub enum InternalError {
     /// Could not de-serialize an object
     DeserializeError,
 }
+#[derive(Debug)]
+pub enum ProtocolError {
+    /// Could not recover envelope
+    EnvelopeRecoveryError,
+    /// Could not authenticate user at server
+    ServerAuthenticationError,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Protocol(ProtocolError),
+    Internal(InternalError),
+}
 
 impl std::fmt::Display for InternalError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -42,14 +55,6 @@ impl std::error::Error for InternalError {
     }
 }
 
-#[derive(Debug)]
-pub enum ProtocolError {
-    /// Could not recover envelope
-    EnvelopeRecoveryError,
-    /// Could not authenticate user at server
-    ServerAuthenticationError,
-}
-
 impl std::fmt::Display for ProtocolError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
@@ -63,12 +68,6 @@ impl std::error::Error for ProtocolError {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         None
     }
-}
-
-#[derive(Debug)]
-pub enum Error {
-    Protocol(ProtocolError),
-    Internal(InternalError),
 }
 
 impl From<ProtocolError> for Error {

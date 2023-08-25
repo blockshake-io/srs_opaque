@@ -1,5 +1,5 @@
-use typenum::{Sum, U32, U64, U288};
 use generic_array::GenericArray;
+use typenum::{Sum, U288, U32, U64};
 
 // provides the digest function on Hash
 pub use sha2::Digest as _;
