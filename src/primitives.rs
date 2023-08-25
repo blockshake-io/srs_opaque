@@ -1,5 +1,6 @@
 use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
 use ff::Field;
+use generic_array::{GenericArray, ArrayLength};
 use hkdf::HkdfExtract;
 
 use crate::{
@@ -9,9 +10,6 @@ use crate::{
     Result,
 };
 use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXmd, Expander};
-
-const STR_DERIVE_KEYPAIR: &[u8; 13] = b"DeriveKeyPair";
-const STR_CONTEXT: &[u8; 13] = b"ContextString";
 
 pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair> {
     let info_len = self::i2osp_2(info.len())?;
@@ -62,26 +60,17 @@ pub fn invert_scalar(scalar: &blstrs::Scalar) -> Result<blstrs::Scalar> {
     }
 }
 
-pub fn expand64(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 64]> {
-    let mut buf = [0; 64];
-    hkdf.expand_multi_info(info, &mut buf[..])
-        .map_err(|_| InternalError::HkdfError)?;
-    Ok(buf)
-}
-
-pub fn expand32(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 32]> {
-    let mut buf = [0; 32];
+pub fn expand<L>(hkdf: &Kdf, info: &[&[u8]]) -> Result<Bytes<L>>
+where L: ArrayLength<u8>
+{
+    let mut buf = GenericArray::default();
     hkdf.expand_multi_info(info, &mut buf[..])
         .map_err(|_| InternalError::HkdfError)?;
     Ok(buf)
 }
 
 pub fn hash(input: &[u8]) -> Result<Digest> {
-    let digest = Hash::digest(input);
-    Ok(digest
-        .as_slice()
-        .try_into()
-        .map_err(|_| InternalError::HashError)?)
+    Ok(Hash::digest(input))
 }
 
 pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode> {
@@ -100,7 +89,7 @@ pub fn stretch(input: &[u8]) -> Result<Digest> {
         argon2::Version::V0x13,
         argon2::Params::new(1024, 1, 1, Some(LEN_HASH)).unwrap(),
     );
-    let mut output = [0; LEN_HASH];
+    let mut output = Digest::default();
     argon2
         .hash_password_into(&input, &[0; argon2::RECOMMENDED_SALT_LEN], &mut output)
         .map_err(|_| InternalError::KsfError)?;
@@ -114,11 +103,6 @@ pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf)> {
     hkdf.input_ikm(&oprf_output);
     hkdf.input_ikm(&stretched_oprf_output);
     let (randomized_pwd, randomized_pwd_hasher) = hkdf.finalize();
-
-    let randomized_pwd: Digest = randomized_pwd
-        .as_slice()
-        .try_into()
-        .map_err(|_| InternalError::Custom("cannot convert HKDF output to array"))?;
 
     Ok((randomized_pwd, randomized_pwd_hasher))
 }
@@ -135,9 +119,9 @@ pub fn create_credential_response_xor_pad(
     Ok(xor_pad)
 }
 
-pub fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> [u8; LEN_KE_PK] {
+pub fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> PublicKeyBytes {
     let dh = secret_key.0 * public_key.0;
-    dh.compress().to_bytes()
+    dh.compress().to_bytes().into()
 }
 
 pub fn preamble(

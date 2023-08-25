@@ -445,10 +445,12 @@ dependencies = [
  "curve25519-dalek",
  "elliptic-curve",
  "ff",
+ "generic-array",
  "hkdf",
  "hmac",
  "rand",
  "sha2",
+ "typenum",
 ]
 
 [[package]]

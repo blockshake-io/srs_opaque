@@ -1,12 +1,12 @@
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar, RistrettoPoint};
 
-use crate::error::{Error, InternalError};
+use crate::{error::{Error, InternalError}, ciphersuite::{PublicKeyBytes, SecretKeyBytes}};
 
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {
-    pub fn serialize(&self) -> [u8; 32] {
-        self.0.compress().to_bytes()
+    pub fn serialize(&self) -> PublicKeyBytes {
+        self.0.compress().to_bytes().into()
     }
 
     pub fn deserialize(buf: &[u8]) -> Result<PublicKey, Error> {
@@ -22,8 +22,8 @@ impl PublicKey {
 pub struct SecretKey(pub Scalar);
 
 impl SecretKey {
-    pub fn serialize(&self) -> [u8; 32] {
-        self.0.as_bytes().clone()
+    pub fn serialize(&self) -> SecretKeyBytes {
+        self.0.to_bytes().into()
     }
 }
 

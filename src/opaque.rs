@@ -78,13 +78,13 @@ impl<'a> ClientRegistrationFlow<'a> {
         server_identity: Option<&str>,
         client_identity: Option<&str>,
     ) -> Result<(RegistrationRecord, Digest)> {
-        let mut nonce = [0; LEN_NONCE];
+        let mut nonce = Nonce::default();
         rng.fill_bytes(&mut nonce);
 
-        let masking_key: Digest = primitives::expand64(randomized_pwd, &[STR_MASKING_KEY])?;
-        let auth_key: Digest = primitives::expand64(randomized_pwd, &[&nonce, STR_AUTH_KEY])?;
-        let export_key: Digest = primitives::expand64(randomized_pwd, &[&nonce, STR_EXPORT_KEY])?;
-        let seed: Seed = primitives::expand32(randomized_pwd, &[&nonce, STR_PRIVATE_KEY])?;
+        let masking_key: Digest = primitives::expand(randomized_pwd, &[STR_MASKING_KEY])?;
+        let auth_key: Digest = primitives::expand(randomized_pwd, &[&nonce, STR_AUTH_KEY])?;
+        let export_key: Digest = primitives::expand(randomized_pwd, &[&nonce, STR_EXPORT_KEY])?;
+        let seed: Seed = primitives::expand(randomized_pwd, &[&nonce, STR_PRIVATE_KEY])?;
 
         let client_keypair = primitives::derive_keypair(&seed, STR_DERIVE_DIFFIE_HELLMAN)?;
 
@@ -227,7 +227,7 @@ impl<'a> ClientLoginFlow<'a> {
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
         let (_, randomized_pwd) = primitives::derive_key(&oprf_output)?;
 
-        let masking_key: Digest = primitives::expand64(&randomized_pwd, &[STR_MASKING_KEY])?;
+        let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
         let mut xor_pad = primitives::create_credential_response_xor_pad(
             &masking_key[..],
             &response.masking_nonce[..],
@@ -264,10 +264,10 @@ impl<'a> ClientLoginFlow<'a> {
         client_identity: Option<&str>,
     ) -> Result<(SecretKey, CleartextCredentials, Digest)> {
         let auth_key: Digest =
-            primitives::expand64(randomized_pwd, &[&envelope.nonce, STR_AUTH_KEY])?;
+            primitives::expand(randomized_pwd, &[&envelope.nonce, STR_AUTH_KEY])?;
         let export_key: Digest =
-            primitives::expand64(randomized_pwd, &[&envelope.nonce, STR_EXPORT_KEY])?;
-        let seed: Seed = primitives::expand32(randomized_pwd, &[&envelope.nonce, STR_PRIVATE_KEY])?;
+            primitives::expand(randomized_pwd, &[&envelope.nonce, STR_EXPORT_KEY])?;
+        let seed: Seed = primitives::expand(randomized_pwd, &[&envelope.nonce, STR_PRIVATE_KEY])?;
         let client_keypair = primitives::derive_keypair(&seed, STR_DERIVE_DIFFIE_HELLMAN)?;
 
         let identifiers = Identifiers {
@@ -437,7 +437,7 @@ impl<'a> ServerLoginFlow<'a> {
         let evaluated_element =
             oprf::evaluate(&request.blinded_element, username.as_bytes(), oprf_key);
 
-        let mut masking_nonce = [0; LEN_NONCE];
+        let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
 
         let xor_pad = primitives::create_credential_response_xor_pad(
@@ -469,9 +469,9 @@ impl<'a> ServerLoginFlow<'a> {
         credential_response: &CredentialResponse,
     ) -> Result<(AuthResponse, AuthCode, AuthCode)> {
         // corresponds to AuthClientStart
-        let mut server_nonce = [0; LEN_NONCE];
+        let mut server_nonce = Nonce::default();
         rng.fill_bytes(&mut server_nonce);
-        let mut server_keyshare_seed = [0; LEN_SEED];
+        let mut server_keyshare_seed = Seed::default();
         rng.fill_bytes(&mut server_keyshare_seed);
         let server_keypair =
             primitives::derive_keypair(&server_keyshare_seed, STR_DERIVE_DIFFIE_HELLMAN)?;
@@ -530,13 +530,13 @@ fn derive_keys(ikm: &[u8], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode
     Ok((km2, km3, session_key))
 }
 
-fn derive_secret(hkdf: &Kdf, label: &[u8], transcript_hash: &[u8]) -> Result<[u8; LEN_PRK]> {
+fn derive_secret(hkdf: &Kdf, label: &[u8], transcript_hash: &[u8]) -> Result<Digest> {
     const STR_OPAQUE: &[u8] = b"OPAQUE-";
     let len_label = primitives::i2osp_2(STR_OPAQUE.len() + label.len())?;
     let len_extract = primitives::i2osp_2(LEN_PRK)?;
     let len_context = primitives::i2osp_2(transcript_hash.len())?;
 
-    let mut okm = [0; LEN_PRK];
+    let mut okm = Digest::default();
     hkdf.expand_multi_info(
         &[
             &len_extract[..],

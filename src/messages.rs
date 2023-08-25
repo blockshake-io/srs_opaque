@@ -3,14 +3,14 @@ use std::io::Write;
 use blstrs::{Compress, G2Affine, Gt};
 
 use crate::{
-    ciphersuite::{AuthCode, Digest, Nonce, LEN_KE_PK, LEN_MAC, LEN_MASKED_RESPONSE, LEN_NONCE},
+    ciphersuite::{AuthCode, Digest, Nonce, LEN_MASKED_RESPONSE, LEN_NONCE, PublicKeyBytes},
     error::InternalError,
     keypair::PublicKey,
     Result,
 };
 
 pub struct CleartextCredentials {
-    pub server_public_key: [u8; LEN_KE_PK],
+    pub server_public_key: PublicKeyBytes,
     pub server_identity: Vec<u8>,
     pub client_identity: Vec<u8>,
 }
@@ -44,8 +44,8 @@ impl Envelope {
         if buf.len() != 96 {
             return Err(InternalError::DeserializeError.into());
         }
-        let mut nonce = [0; LEN_NONCE];
-        let mut auth_tag = [0; LEN_MAC];
+        let mut nonce = Nonce::default();
+        let mut auth_tag = AuthCode::default();
         nonce.copy_from_slice(&buf[0..32]);
         auth_tag.copy_from_slice(&buf[32..96]);
         Ok(Envelope { nonce, auth_tag })
