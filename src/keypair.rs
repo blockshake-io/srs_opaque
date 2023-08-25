@@ -1,6 +1,9 @@
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar, RistrettoPoint};
 
-use crate::{error::{Error, InternalError}, ciphersuite::{PublicKeyBytes, SecretKeyBytes}};
+use crate::{
+    ciphersuite::{PublicKeyBytes, SecretKeyBytes},
+    error::{Error, InternalError},
+};
 
 pub struct PublicKey(pub RistrettoPoint);
 

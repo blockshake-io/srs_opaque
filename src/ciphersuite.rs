@@ -1,4 +1,6 @@
-use generic_array::{GenericArray, typenum::{U64, U32}};
+use typenum::{Sum, U32, U64, U288};
+use generic_array::GenericArray;
+
 // provides the digest function on Hash
 pub use sha2::Digest as _;
 // provides the new_from_slice function on Hmac
@@ -8,27 +10,33 @@ pub type Hash = sha2::Sha512;
 pub type Kdf = hkdf::Hkdf<Hash>;
 pub type Mac = hmac::Hmac<Hash>;
 
-pub type Digest = GenericArray<u8, U64>;
-pub type Seed = GenericArray<u8, U32>;
-pub type Nonce = GenericArray<u8, U32>;
-pub type AuthCode = GenericArray<u8, U64>;
-pub type PublicKeyBytes = GenericArray<u8, U32>;
-pub type SecretKeyBytes = GenericArray<u8, U32>;
-pub type Bytes<L> = GenericArray<u8, L>;
-
 /// length of a hash; corresponds to Nh in OPAQUE standard
-pub const LEN_HASH: usize = 64;
+pub type LenHash = U64;
 /// length of a MAC; corresponds to Nm in OPAQUE standard
-pub const LEN_MAC: usize = LEN_HASH;
+pub type LenMac = LenHash;
 /// length of a seed; corresponds to Nseed in OPAQUE standard
-pub const LEN_SEED: usize = 32;
+pub type LenSeed = U32;
 /// length of a nonce; corresponds to Nn in OPAQUE standard
-pub const LEN_NONCE: usize = 32;
+pub type LenNonce = U32;
 /// length of a public key in OPAQUE's key exchange
-pub const LEN_KE_PK: usize = 32;
+pub type LenKePublicKey = U32;
+/// length of a secret key in OPAQUE's key exchange
+pub type LenKeSecretKey = U32;
 /// length of a pseudo-random key obtained from Extract
-pub const LEN_PRK: usize = LEN_HASH;
-pub const LEN_MASKED_RESPONSE: usize = LEN_KE_PK + LEN_NONCE + LEN_MAC;
+pub type LenPrk = LenHash;
+/// length of a compressed element in BLS12-381's output curve
+pub type LenGt = U288;
+
+pub type LenMaskedResponse = Sum<LenKePublicKey, Sum<LenNonce, LenMac>>;
+pub type LenCredentialResponse = Sum<LenGt, Sum<LenNonce, LenMaskedResponse>>;
+
+pub type Digest = GenericArray<u8, LenHash>;
+pub type Seed = GenericArray<u8, LenSeed>;
+pub type Nonce = GenericArray<u8, LenNonce>;
+pub type AuthCode = GenericArray<u8, LenMac>;
+pub type PublicKeyBytes = GenericArray<u8, LenKePublicKey>;
+pub type SecretKeyBytes = GenericArray<u8, LenKeSecretKey>;
+pub type Bytes<L> = GenericArray<u8, L>;
 
 pub const DST: &[u8] = b"opaque";
 

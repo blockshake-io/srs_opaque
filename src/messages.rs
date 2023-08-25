@@ -1,9 +1,11 @@
-use std::io::Write;
-
 use blstrs::{Compress, G2Affine, Gt};
+use typenum::Sum;
 
 use crate::{
-    ciphersuite::{AuthCode, Digest, Nonce, LEN_MASKED_RESPONSE, LEN_NONCE, PublicKeyBytes},
+    ciphersuite::{
+        AuthCode, Bytes, Digest, LenCredentialResponse, LenGt, LenKePublicKey, LenMaskedResponse,
+        LenNonce, Nonce, PublicKeyBytes,
+    },
     error::InternalError,
     keypair::PublicKey,
     Result,
@@ -78,13 +80,14 @@ impl CredentialRequest {
 }
 
 pub struct AuthRequest {
-    pub client_nonce: [u8; LEN_NONCE],
+    pub client_nonce: Nonce,
     pub client_public_keyshare: PublicKey,
 }
 
+pub type AuthRequestLen = Sum<LenNonce, LenKePublicKey>;
 impl AuthRequest {
-    fn serialize(&self) -> [u8; 64] {
-        let mut buf = [0; LEN_NONCE + 32];
+    fn serialize(&self) -> Bytes<AuthRequestLen> {
+        let mut buf = Bytes::<AuthRequestLen>::default();
         buf[0..32].copy_from_slice(&self.client_nonce[..]);
         let public_key = self.client_public_keyshare.0.compress().to_bytes();
         buf[32..64].copy_from_slice(&public_key[..]);
@@ -111,19 +114,17 @@ impl KeyExchange1 {
 pub struct CredentialResponse {
     pub evaluated_element: Gt,
     pub masking_nonce: Nonce,
-    pub masked_response: [u8; LEN_MASKED_RESPONSE],
+    pub masked_response: Bytes<LenMaskedResponse>,
 }
 
 impl CredentialResponse {
-    pub fn serialize(&self) -> Result<Vec<u8>> {
-        let mut buf = Vec::with_capacity(288 + LEN_NONCE + LEN_MASKED_RESPONSE);
-        let err = |_| InternalError::SerializeError;
+    pub fn serialize(&self) -> Result<Bytes<LenCredentialResponse>> {
+        let mut gt = Bytes::<LenGt>::default();
         self.evaluated_element
-            .write_compressed(&mut buf)
-            .map_err(err)?;
-        buf.write_all(&self.masking_nonce[..]).map_err(err)?;
-        buf.write_all(&self.masked_response).map_err(err)?;
-        Ok(buf)
+            .write_compressed(&mut gt[..])
+            .map_err(|_| InternalError::SerializeError)?;
+        use generic_array::sequence::Concat;
+        Ok(gt.concat(self.masking_nonce).concat(self.masked_response))
     }
 }
 

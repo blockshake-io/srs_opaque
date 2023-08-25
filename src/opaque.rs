@@ -1,6 +1,7 @@
 use blstrs::Scalar;
 use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
+use typenum::Unsigned;
 
 use crate::{
     ciphersuite::*,
@@ -173,9 +174,9 @@ impl<'a> ClientLoginFlow<'a> {
         };
 
         // corresponds to AuthClientStart
-        let mut client_nonce = [0; LEN_NONCE];
+        let mut client_nonce = Nonce::default();
         rng.fill_bytes(&mut client_nonce);
-        let mut client_keyshare_seed = [0; LEN_SEED];
+        let mut client_keyshare_seed = Seed::default();
         rng.fill_bytes(&mut client_keyshare_seed);
         let client_keypair =
             primitives::derive_keypair(&client_keyshare_seed, STR_DERIVE_DIFFIE_HELLMAN)?;
@@ -445,7 +446,7 @@ impl<'a> ServerLoginFlow<'a> {
             &masking_nonce[..],
         )?;
 
-        let mut masked_response = [0; LEN_MASKED_RESPONSE];
+        let mut masked_response = Bytes::default();
         masked_response[0..32].copy_from_slice(&server_public_key.serialize()[..]);
         masked_response[32..].copy_from_slice(&record.envelope.serialize()[..]);
 
@@ -533,7 +534,7 @@ fn derive_keys(ikm: &[u8], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode
 fn derive_secret(hkdf: &Kdf, label: &[u8], transcript_hash: &[u8]) -> Result<Digest> {
     const STR_OPAQUE: &[u8] = b"OPAQUE-";
     let len_label = primitives::i2osp_2(STR_OPAQUE.len() + label.len())?;
-    let len_extract = primitives::i2osp_2(LEN_PRK)?;
+    let len_extract = primitives::i2osp_2(LenPrk::to_usize())?;
     let len_context = primitives::i2osp_2(transcript_hash.len())?;
 
     let mut okm = Digest::default();

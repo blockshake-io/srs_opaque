@@ -1,7 +1,8 @@
 use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
 use ff::Field;
-use generic_array::{GenericArray, ArrayLength};
+use generic_array::{ArrayLength, GenericArray};
 use hkdf::HkdfExtract;
+use typenum::Unsigned;
 
 use crate::{
     ciphersuite::*,
@@ -61,7 +62,8 @@ pub fn invert_scalar(scalar: &blstrs::Scalar) -> Result<blstrs::Scalar> {
 }
 
 pub fn expand<L>(hkdf: &Kdf, info: &[&[u8]]) -> Result<Bytes<L>>
-where L: ArrayLength<u8>
+where
+    L: ArrayLength<u8>,
 {
     let mut buf = GenericArray::default();
     hkdf.expand_multi_info(info, &mut buf[..])
@@ -87,7 +89,7 @@ pub fn stretch(input: &[u8]) -> Result<Digest> {
     let argon2 = argon2::Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
-        argon2::Params::new(1024, 1, 1, Some(LEN_HASH)).unwrap(),
+        argon2::Params::new(1024, 1, 1, Some(LenHash::to_usize())).unwrap(),
     );
     let mut output = Digest::default();
     argon2
@@ -110,8 +112,8 @@ pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf)> {
 pub fn create_credential_response_xor_pad(
     masking_key: &[u8],
     masking_nonce: &[u8],
-) -> Result<[u8; LEN_MASKED_RESPONSE]> {
-    let mut xor_pad = [0; LEN_MASKED_RESPONSE];
+) -> Result<Bytes<LenMaskedResponse>> {
+    let mut xor_pad = GenericArray::default();
     Kdf::from_prk(masking_key)
         .map_err(|_| InternalError::HkdfError)?
         .expand_multi_info(&[masking_nonce, STR_CREDENTIAL_RESPONSE_PAD], &mut xor_pad)
