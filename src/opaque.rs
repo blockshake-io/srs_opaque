@@ -4,14 +4,14 @@ use rand::{CryptoRng, RngCore};
 
 use crate::{
     ciphersuite::*,
-    error::InternalError,
+    error::{InternalError, ProtocolError},
     keypair::{KeyPair, PublicKey, SecretKey},
     messages::{
         AuthRequest, AuthResponse, CleartextCredentials, CredentialRequest, CredentialResponse,
         Envelope, KeyExchange1, KeyExchange2, KeyExchange3, RegistrationRecord,
         RegistrationRequest, RegistrationResponse,
     },
-    oprf, primitives,
+    oprf, primitives, Result,
 };
 
 /// Options for specifying custom identifiers
@@ -39,8 +39,8 @@ impl<'a> ClientRegistrationFlow<'a> {
         server_identity: Option<&'a str>,
     ) -> ClientRegistrationFlow<'a> {
         ClientRegistrationFlow {
-            username: username,
-            password: password,
+            username,
+            password,
             server_public_key,
             server_identity,
             blinding_key: None,
@@ -56,13 +56,8 @@ impl<'a> ClientRegistrationFlow<'a> {
         }
     }
 
-    pub fn finish(
-        &self,
-        response: &RegistrationResponse,
-    ) -> Result<(RegistrationRecord, Digest), InternalError> {
-        let blinding_key = &self
-            .blinding_key
-            .ok_or(InternalError::Custom("not initialized"))?;
+    pub fn finish(&self, response: &RegistrationResponse) -> Result<(RegistrationRecord, Digest)> {
+        let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
         let (_, randomized_pwd_hasher) = primitives::derive_key(&oprf_output)?;
 
@@ -82,7 +77,7 @@ impl<'a> ClientRegistrationFlow<'a> {
         server_public_key: &PublicKey,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-    ) -> Result<(RegistrationRecord, Digest), InternalError> {
+    ) -> Result<(RegistrationRecord, Digest)> {
         let mut nonce = [0; LEN_NONCE];
         rng.fill_bytes(&mut nonce);
 
@@ -169,10 +164,7 @@ impl<'a> ClientLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE1
-    pub fn start<R: CryptoRng + RngCore>(
-        &mut self,
-        rng: &mut R,
-    ) -> Result<KeyExchange1, InternalError> {
+    pub fn start<R: CryptoRng + RngCore>(&mut self, rng: &mut R) -> Result<KeyExchange1> {
         // corresponds to CreateCredentialRequest
         let blind_result = oprf::blind(self.password);
         self.blinding_key = Some(blind_result.blinding_key);
@@ -207,10 +199,8 @@ impl<'a> ClientLoginFlow<'a> {
         &self,
         server_identity: Option<&str>,
         ke2: &KeyExchange2,
-    ) -> Result<(KeyExchange3, AuthCode, Digest), InternalError> {
-        let blinding_key = &self
-            .blinding_key
-            .ok_or(InternalError::Custom("not initialized"))?;
+    ) -> Result<(KeyExchange3, AuthCode, Digest)> {
+        let blinding_key = &self.blinding_key.expect("uninitialized");
 
         let (client_private_key, cleartext_credentials, _, export_key) = Self::recover_credentials(
             self.password,
@@ -232,7 +222,7 @@ impl<'a> ClientLoginFlow<'a> {
         response: &CredentialResponse,
         server_identity: Option<&str>,
         username: &str,
-    ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest), InternalError> {
+    ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)> {
         response.evaluated_element;
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
         let (_, randomized_pwd) = primitives::derive_key(&oprf_output)?;
@@ -272,7 +262,7 @@ impl<'a> ClientLoginFlow<'a> {
         envelope: &Envelope,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-    ) -> Result<(SecretKey, CleartextCredentials, Digest), InternalError> {
+    ) -> Result<(SecretKey, CleartextCredentials, Digest)> {
         let auth_key: Digest =
             primitives::expand64(randomized_pwd, &[&envelope.nonce, STR_AUTH_KEY])?;
         let export_key: Digest =
@@ -297,7 +287,7 @@ impl<'a> ClientLoginFlow<'a> {
         let expected_tag: AuthCode = hmac.finalize().into_bytes().into();
 
         if envelope.auth_tag != expected_tag {
-            return Err(InternalError::EnvelopeRecoveryError);
+            return Err(ProtocolError::EnvelopeRecoveryError.into());
         }
 
         Ok((client_keypair.secret_key, cleartext_credentials, export_key))
@@ -308,14 +298,9 @@ impl<'a> ClientLoginFlow<'a> {
         cleartext_credentials: &CleartextCredentials,
         client_private_key: &SecretKey,
         ke2: &KeyExchange2,
-    ) -> Result<(KeyExchange3, AuthCode), InternalError> {
-        let client_secret = self
-            .client_secret
-            .as_ref()
-            .ok_or(InternalError::Custom("not initialized"))?;
-        let ke1_serialized = &self
-            .ke1_serialized
-            .ok_or(InternalError::Custom("not initialized"))?;
+    ) -> Result<(KeyExchange3, AuthCode)> {
+        let client_secret = self.client_secret.as_ref().expect("uninitialized");
+        let ke1_serialized = self.ke1_serialized.as_ref().expect("uninitialized");
 
         let server_public_key = PublicKey::deserialize(&cleartext_credentials.server_public_key)?;
         let dh1 =
@@ -342,7 +327,7 @@ impl<'a> ClientLoginFlow<'a> {
         let expected_server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
 
         if ke2.auth_response.server_mac != expected_server_mac {
-            return Err(InternalError::ServerAuthenticationError);
+            return Err(ProtocolError::ServerAuthenticationError.into());
         }
 
         let client_mac = primitives::mac(
@@ -392,7 +377,7 @@ impl<'a> ServerLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE2
-    pub fn start(&mut self) -> Result<KeyExchange2, InternalError> {
+    pub fn start(&mut self) -> Result<KeyExchange2> {
         let mut server_rng = rand::thread_rng();
         let credential_response = Self::create_credential_response(
             &mut server_rng,
@@ -432,15 +417,12 @@ impl<'a> ServerLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE2
-    pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode, InternalError> {
-        let expected_client_mac = self
-            .expected_client_mac
-            .as_ref()
-            .ok_or(InternalError::Custom("not initialized"))?;
+    pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode> {
+        let expected_client_mac = self.expected_client_mac.as_ref().expect("uninitialized");
         if ke3.client_mac == *expected_client_mac {
-            Ok(self.session_key.expect("not initialized"))
+            Ok(self.session_key.expect("uninitialized"))
         } else {
-            Err(InternalError::ServerAuthenticationError)
+            Err(ProtocolError::ServerAuthenticationError.into())
         }
     }
 
@@ -451,7 +433,7 @@ impl<'a> ServerLoginFlow<'a> {
         record: &RegistrationRecord,
         username: &str,
         oprf_key: &Scalar,
-    ) -> Result<CredentialResponse, InternalError> {
+    ) -> Result<CredentialResponse> {
         let evaluated_element =
             oprf::evaluate(&request.blinded_element, username.as_bytes(), oprf_key);
 
@@ -485,7 +467,7 @@ impl<'a> ServerLoginFlow<'a> {
         client_public_key: &PublicKey,
         ke1: &KeyExchange1,
         credential_response: &CredentialResponse,
-    ) -> Result<(AuthResponse, AuthCode, AuthCode), InternalError> {
+    ) -> Result<(AuthResponse, AuthCode, AuthCode)> {
         // corresponds to AuthClientStart
         let mut server_nonce = [0; LEN_NONCE];
         rng.fill_bytes(&mut server_nonce);
@@ -533,10 +515,7 @@ impl<'a> ServerLoginFlow<'a> {
     }
 }
 
-fn derive_keys(
-    ikm: &[u8],
-    hashed_preamble: &[u8],
-) -> Result<(AuthCode, AuthCode, AuthCode), InternalError> {
+fn derive_keys(ikm: &[u8], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode, AuthCode)> {
     let mut hkdf = HkdfExtract::<Hash>::new(None);
     hkdf.input_ikm(ikm);
     let (_, hkdf1) = hkdf.finalize();
@@ -551,11 +530,7 @@ fn derive_keys(
     Ok((km2, km3, session_key))
 }
 
-fn derive_secret(
-    hkdf: &Kdf,
-    label: &[u8],
-    transcript_hash: &[u8],
-) -> Result<[u8; LEN_PRK], InternalError> {
+fn derive_secret(hkdf: &Kdf, label: &[u8], transcript_hash: &[u8]) -> Result<[u8; LEN_PRK]> {
     const STR_OPAQUE: &[u8] = b"OPAQUE-";
     let len_label = primitives::i2osp_2(STR_OPAQUE.len() + label.len())?;
     let len_extract = primitives::i2osp_2(LEN_PRK)?;

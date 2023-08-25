@@ -1,12 +1,12 @@
 use blstrs::Scalar;
 use ff::Field;
 use srs_opaque::{
-    error::InternalError,
+    error::Error,
     opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
     primitives::derive_keypair,
 };
 
-fn main() -> Result<(), InternalError> {
+fn main() -> Result<(), Error> {
     let server_oprf_key = Scalar::ONE.double();
     let server_keypair = derive_keypair(b"secret seed", b"public info")?;
     let server_identity = "srs.blockshake.io";

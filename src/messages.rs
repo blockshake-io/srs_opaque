@@ -6,6 +6,7 @@ use crate::{
     ciphersuite::{AuthCode, Digest, Nonce, LEN_KE_PK, LEN_MAC, LEN_MASKED_RESPONSE, LEN_NONCE},
     error::InternalError,
     keypair::PublicKey,
+    Result,
 };
 
 pub struct CleartextCredentials {
@@ -39,9 +40,9 @@ impl Envelope {
         buf
     }
 
-    pub fn deserialize(buf: &[u8]) -> Result<Envelope, InternalError> {
+    pub fn deserialize(buf: &[u8]) -> Result<Envelope> {
         if buf.len() != 96 {
-            return Err(InternalError::DeserializeError);
+            return Err(InternalError::DeserializeError.into());
         }
         let mut nonce = [0; LEN_NONCE];
         let mut auth_tag = [0; LEN_MAC];
@@ -114,7 +115,7 @@ pub struct CredentialResponse {
 }
 
 impl CredentialResponse {
-    pub fn serialize(&self) -> Result<Vec<u8>, InternalError> {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
         let mut buf = Vec::with_capacity(288 + LEN_NONCE + LEN_MASKED_RESPONSE);
         let err = |_| InternalError::SerializeError;
         self.evaluated_element

@@ -6,20 +6,21 @@ use crate::{
     ciphersuite::*,
     error::InternalError,
     keypair::{KeyPair, PublicKey, SecretKey},
+    Result,
 };
 use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXmd, Expander};
 
 const STR_DERIVE_KEYPAIR: &[u8; 13] = b"DeriveKeyPair";
 const STR_CONTEXT: &[u8; 13] = b"ContextString";
 
-pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair, InternalError> {
+pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair> {
     let info_len = self::i2osp_2(info.len())?;
     let mut sk_s = Scalar::ZERO;
 
     let counter = 0;
     while sk_s == Scalar::ZERO {
         if counter > 255 {
-            return Err(InternalError::DeriveKeyError);
+            return Err(InternalError::DeriveKeyError.into());
         }
 
         let counter_bytes = i2osp_2(counter)?;
@@ -37,7 +38,7 @@ pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair, InternalError
 
 // Implements the `HashToScalar()` function from
 // https://www.ietf.org/archive/id/draft-irtf-cfrg-voprf-07.html#section-4.1
-fn hash_to_scalar(input: &[&[u8]], dst: &[&[u8]]) -> Result<Scalar, InternalError> {
+fn hash_to_scalar(input: &[&[u8]], dst: &[&[u8]]) -> Result<Scalar> {
     let mut uniform_bytes: [u8; 64] = [0; 64];
     ExpandMsgXmd::<Hash>::expand_message(input, dst, 64)
         .map_err(|_| InternalError::Custom("cannot expand message (XMD)"))?
@@ -46,36 +47,36 @@ fn hash_to_scalar(input: &[&[u8]], dst: &[&[u8]]) -> Result<Scalar, InternalErro
     Ok(Scalar::from_bytes_mod_order_wide(&uniform_bytes.into()))
 }
 
-pub fn i2osp_2(input: usize) -> Result<[u8; 2], InternalError> {
+pub fn i2osp_2(input: usize) -> Result<[u8; 2]> {
     u16::try_from(input)
         .map(|input| input.to_be_bytes())
-        .map_err(|_| InternalError::Custom("could not compute i2osp_2"))
+        .map_err(|_| InternalError::Custom("could not compute i2osp_2").into())
 }
 
-pub fn invert_scalar(scalar: &blstrs::Scalar) -> Result<blstrs::Scalar, InternalError> {
+pub fn invert_scalar(scalar: &blstrs::Scalar) -> Result<blstrs::Scalar> {
     let inverted = scalar.invert();
     if bool::from(inverted.is_some()) {
         Ok(inverted.unwrap())
     } else {
-        Err(InternalError::Custom("cannot invert scalar"))
+        Err(InternalError::Custom("cannot invert scalar").into())
     }
 }
 
-pub fn expand64(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 64], InternalError> {
+pub fn expand64(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 64]> {
     let mut buf = [0; 64];
     hkdf.expand_multi_info(info, &mut buf[..])
         .map_err(|_| InternalError::HkdfError)?;
     Ok(buf)
 }
 
-pub fn expand32(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 32], InternalError> {
+pub fn expand32(hkdf: &Kdf, info: &[&[u8]]) -> Result<[u8; 32]> {
     let mut buf = [0; 32];
     hkdf.expand_multi_info(info, &mut buf[..])
         .map_err(|_| InternalError::HkdfError)?;
     Ok(buf)
 }
 
-pub fn hash(input: &[u8]) -> Result<Digest, InternalError> {
+pub fn hash(input: &[u8]) -> Result<Digest> {
     let digest = Hash::digest(input);
     Ok(digest
         .as_slice()
@@ -83,7 +84,7 @@ pub fn hash(input: &[u8]) -> Result<Digest, InternalError> {
         .map_err(|_| InternalError::HashError)?)
 }
 
-pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode, InternalError> {
+pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode> {
     let mut mac_hasher = Mac::new_from_slice(key).map_err(|_| InternalError::HmacError)?;
     mac_hasher.update(msg);
     Ok(mac_hasher
@@ -93,7 +94,7 @@ pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode, InternalError> {
         .map_err(|_| InternalError::HmacError)?)
 }
 
-pub fn stretch(input: &[u8]) -> Result<Digest, InternalError> {
+pub fn stretch(input: &[u8]) -> Result<Digest> {
     let argon2 = argon2::Argon2::new(
         argon2::Algorithm::Argon2id,
         argon2::Version::V0x13,
@@ -106,7 +107,7 @@ pub fn stretch(input: &[u8]) -> Result<Digest, InternalError> {
     Ok(output)
 }
 
-pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf), InternalError> {
+pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf)> {
     let stretched_oprf_output = stretch(&oprf_output)?;
 
     let mut hkdf = HkdfExtract::<Hash>::new(None);
@@ -125,7 +126,7 @@ pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf), InternalError> {
 pub fn create_credential_response_xor_pad(
     masking_key: &[u8],
     masking_nonce: &[u8],
-) -> Result<[u8; LEN_MASKED_RESPONSE], InternalError> {
+) -> Result<[u8; LEN_MASKED_RESPONSE]> {
     let mut xor_pad = [0; LEN_MASKED_RESPONSE];
     Kdf::from_prk(masking_key)
         .map_err(|_| InternalError::HkdfError)?
@@ -147,7 +148,7 @@ pub fn preamble(
     server_nonce: &[u8],
     server_public_keyshare: &PublicKey,
     context: &[u8],
-) -> Result<Vec<u8>, InternalError> {
+) -> Result<Vec<u8>> {
     let len_context = i2osp_2(context.len())?;
     let len_username = i2osp_2(username.len())?;
     let len_server_identity = i2osp_2(server_identity.len())?;

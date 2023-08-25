@@ -5,6 +5,7 @@ use crate::{
     ciphersuite::*,
     error::InternalError,
     primitives::{self, i2osp_2},
+    Result,
 };
 
 pub struct BlindResult {
@@ -35,11 +36,7 @@ pub fn evaluate(blinded_element: &G2Affine, public_input: &[u8], oprf_key: &Scal
     x_tilde * oprf_key
 }
 
-pub fn finalize(
-    input: &[u8],
-    evaluated_element: &Gt,
-    blinding_key: &Scalar,
-) -> Result<Digest, InternalError> {
+pub fn finalize(input: &[u8], evaluated_element: &Gt, blinding_key: &Scalar) -> Result<Digest> {
     let y = evaluated_element * primitives::invert_scalar(blinding_key)?;
     let mut serialized_element = Vec::new();
     y.write_compressed(&mut serialized_element)
