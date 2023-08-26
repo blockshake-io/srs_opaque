@@ -3,6 +3,8 @@ use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
 use typenum::Unsigned;
 
+pub type Stretch = dyn Fn(&[u8]) -> Result<Digest>;
+
 use crate::{
     ciphersuite::*,
     error::{InternalError, ProtocolError},
@@ -12,8 +14,9 @@ use crate::{
         Envelope, KeyExchange1, KeyExchange2, KeyExchange3, RegistrationRecord,
         RegistrationRequest, RegistrationResponse,
     },
-    oprf, primitives, Result,
+    oprf,
     payload::Payload,
+    primitives, Result,
 };
 
 /// Options for specifying custom identifiers
@@ -35,7 +38,8 @@ pub struct ClientRegistrationFlow<'a, Payload> {
 }
 
 impl<'a, P> ClientRegistrationFlow<'a, P>
-where P: Payload
+where
+    P: Payload,
 {
     pub fn new(
         username: &'a str,
@@ -63,10 +67,17 @@ where P: Payload
         }
     }
 
-    pub fn finish(&self, response: &RegistrationResponse) -> Result<(RegistrationRecord<P>, Digest)> {
+    pub fn finish<S>(
+        &self,
+        response: &RegistrationResponse,
+        ksf: S,
+    ) -> Result<(RegistrationRecord<P>, Digest)>
+    where
+        S: Fn(&[u8]) -> Result<Digest>,
+    {
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
-        let (_, randomized_pwd_hasher) = primitives::derive_key(&oprf_output)?;
+        let (_, randomized_pwd_hasher) = primitives::derive_key(&oprf_output, ksf)?;
 
         let mut client_rng = rand::thread_rng();
         Self::store(
@@ -111,7 +122,8 @@ where P: Payload
             &nonce,
             &cleartext_credentials.serialize()[..],
             &payload.serialize()?[..],
-        ].concat();
+        ]
+        .concat();
 
         let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
         hmac.update(&aad);
@@ -142,7 +154,8 @@ impl<'a> ServerRegistrationFlow<'a> {
     }
 
     pub fn finish<P>(&self, _record: &RegistrationRecord<P>)
-    where P: Payload
+    where
+        P: Payload,
     {
         // we need to decide what to do here
     }
@@ -211,11 +224,15 @@ impl<'a> ClientLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE3
-    pub fn finish<P: Payload>(
+    pub fn finish<P: Payload, S>(
         &self,
         server_identity: Option<&str>,
         ke2: &KeyExchange2<P>,
-    ) -> Result<(KeyExchange3, AuthCode, Digest)> {
+        ksf: S,
+    ) -> Result<(KeyExchange3, AuthCode, Digest)>
+    where
+        S: Fn(&[u8]) -> Result<Digest>,
+    {
         let blinding_key = &self.blinding_key.expect("uninitialized");
 
         let (client_private_key, cleartext_credentials, _, export_key) = Self::recover_credentials(
@@ -225,6 +242,7 @@ impl<'a> ClientLoginFlow<'a> {
             server_identity,
             self.username,
             &ke2.payload,
+            ksf,
         )?;
 
         let (ke3, session_key) =
@@ -233,17 +251,21 @@ impl<'a> ClientLoginFlow<'a> {
         Ok((ke3, session_key, export_key))
     }
 
-    fn recover_credentials<P: Payload>(
+    fn recover_credentials<P: Payload, S>(
         password: &[u8],
         blinding_key: &Scalar,
         response: &CredentialResponse,
         server_identity: Option<&str>,
         username: &str,
         payload: &P,
-    ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)> {
+        ksf: S,
+    ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)>
+    where
+        S: Fn(&[u8]) -> Result<Digest>,
+    {
         response.evaluated_element;
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
-        let (_, randomized_pwd) = primitives::derive_key(&oprf_output)?;
+        let (_, randomized_pwd) = primitives::derive_key(&oprf_output, ksf)?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
         let mut xor_pad = primitives::create_credential_response_xor_pad(
@@ -304,7 +326,8 @@ impl<'a> ClientLoginFlow<'a> {
             &envelope.nonce,
             &cleartext_credentials.serialize()[..],
             &payload.serialize()?[..],
-        ].concat();
+        ]
+        .concat();
 
         let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
         hmac.update(&aad);
@@ -366,7 +389,8 @@ impl<'a> ClientLoginFlow<'a> {
 }
 
 pub struct ServerLoginFlow<'a, P>
-where P: Payload
+where
+    P: Payload,
 {
     server_public_key: &'a PublicKey,
     server_identity: Option<&'a str>,
@@ -380,7 +404,8 @@ where P: Payload
 }
 
 impl<'a, P> ServerLoginFlow<'a, P>
-where P: Payload
+where
+    P: Payload,
 {
     pub fn new(
         server_public_key: &'a PublicKey,

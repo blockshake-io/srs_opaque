@@ -8,7 +8,8 @@ use crate::{
     },
     error::InternalError,
     keypair::PublicKey,
-    Result, payload::Payload,
+    payload::Payload,
+    Result,
 };
 
 pub struct CleartextCredentials {

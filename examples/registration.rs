@@ -1,11 +1,14 @@
 use blstrs::Scalar;
 use ff::Field;
 use srs_opaque::{
+    ciphersuite::{Bytes, Digest},
+    error::InternalError,
     opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
-    primitives::derive_keypair, payload::Payload, ciphersuite::Bytes, error::Error,
+    payload::Payload,
+    primitives::derive_keypair,
+    Result,
 };
 use typenum::{U20, U4, U8};
-
 
 #[derive(Clone)]
 pub struct KsfParams {
@@ -15,11 +18,10 @@ pub struct KsfParams {
     output_len: Option<usize>,
 }
 
-
 impl Payload for KsfParams {
     type Len = U20;
 
-    fn serialize(&self) -> srs_opaque::Result<Bytes<Self::Len>> {
+    fn serialize(&self) -> Result<Bytes<Self::Len>> {
         use generic_array::sequence::Concat;
         let mut m_cost = Bytes::<U4>::default();
         let mut t_cost = Bytes::<U4>::default();
@@ -32,8 +34,9 @@ impl Payload for KsfParams {
         Ok(m_cost.concat(t_cost).concat(p_cost).concat(output_len))
     }
 
-    fn deserialize(buf: &Bytes<Self::Len>) -> srs_opaque::Result<Self>
-    where Self: Sized
+    fn deserialize(buf: &Bytes<Self::Len>) -> Result<Self>
+    where
+        Self: Sized,
     {
         let m_cost = u32::from_be_bytes(buf[0..4].try_into().unwrap());
         let t_cost = u32::from_be_bytes(buf[4..8].try_into().unwrap());
@@ -43,21 +46,43 @@ impl Payload for KsfParams {
             m_cost,
             t_cost,
             p_cost,
-            output_len: if output_len == 0 { None} else { Some(output_len) },
+            output_len: if output_len == 0 {
+                None
+            } else {
+                Some(output_len)
+            },
         })
     }
 }
 
+fn argon2_stretch(input: &[u8], params: &KsfParams) -> Result<Digest> {
+    let argon2 = argon2::Argon2::new(
+        argon2::Algorithm::Argon2id,
+        argon2::Version::V0x13,
+        argon2::Params::new(
+            params.m_cost,
+            params.t_cost,
+            params.p_cost,
+            params.output_len,
+        )
+        .map_err(|_| InternalError::KsfError)?,
+    );
+    let mut output = Digest::default();
+    argon2
+        .hash_password_into(&input, &[0; argon2::RECOMMENDED_SALT_LEN], &mut output)
+        .map_err(|_| InternalError::KsfError)?;
+    Ok(output)
+}
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     let server_oprf_key = Scalar::ONE.double();
     let server_keypair = derive_keypair(b"secret seed", b"public info")?;
     let server_identity = "srs.blockshake.io";
 
     let ksf_params = KsfParams {
-        m_cost: 0,
-        p_cost: 0,
-        t_cost: 0,
+        m_cost: 32768,
+        p_cost: 1,
+        t_cost: 1,
         output_len: None,
     };
 
@@ -79,7 +104,9 @@ fn main() -> Result<(), Error> {
 
     // STEP 3: finish registration on client, create registration record
     // that's sent to the server and an export key that's used locally
-    let (registration_record, export_key) = client_flow.finish(&registration_response)?;
+    let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ksf_params);
+    let (registration_record, export_key) =
+        client_flow.finish(&registration_response, ksf_stretch)?;
 
     // STEP 4: finish registration on server using the registration record
     server_flow.finish(&registration_record);
@@ -120,7 +147,9 @@ fn main() -> Result<(), Error> {
     let ke2 = server_flow.start()?;
 
     // STEP 3: finalize on client
-    let (ke3, client_session_key, export_key) = client_flow.finish(Some(server_identity), &ke2)?;
+    let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ke2.payload);
+    let (ke3, client_session_key, export_key) =
+        client_flow.finish(Some(server_identity), &ke2, ksf_stretch)?;
 
     // STEP 4: finalize on server
     let server_session_key = server_flow.finish(&ke3)?;

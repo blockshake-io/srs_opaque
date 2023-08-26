@@ -2,7 +2,6 @@ use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
 use ff::Field;
 use generic_array::{ArrayLength, GenericArray};
 use hkdf::HkdfExtract;
-use typenum::Unsigned;
 
 use crate::{
     ciphersuite::*,
@@ -85,21 +84,11 @@ pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode> {
         .map_err(|_| InternalError::HmacError)?)
 }
 
-pub fn stretch(input: &[u8]) -> Result<Digest> {
-    let argon2 = argon2::Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        argon2::Params::new(1024, 1, 1, Some(LenHash::to_usize())).unwrap(),
-    );
-    let mut output = Digest::default();
-    argon2
-        .hash_password_into(&input, &[0; argon2::RECOMMENDED_SALT_LEN], &mut output)
-        .map_err(|_| InternalError::KsfError)?;
-    Ok(output)
-}
-
-pub fn derive_key(oprf_output: &[u8]) -> Result<(Digest, Kdf)> {
-    let stretched_oprf_output = stretch(&oprf_output)?;
+pub fn derive_key<S>(oprf_output: &[u8], ksf: S) -> Result<(Digest, Kdf)>
+where
+    S: Fn(&[u8]) -> Result<Digest>,
+{
+    let stretched_oprf_output = ksf(&oprf_output)?;
 
     let mut hkdf = HkdfExtract::<Hash>::new(None);
     hkdf.input_ikm(&oprf_output);
