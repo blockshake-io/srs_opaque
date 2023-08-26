@@ -13,6 +13,7 @@ use crate::{
         RegistrationRequest, RegistrationResponse,
     },
     oprf, primitives, Result,
+    payload::Payload,
 };
 
 /// Options for specifying custom identifiers
@@ -24,25 +25,30 @@ pub struct Identifiers<'a> {
     pub server: Option<&'a [u8]>,
 }
 
-pub struct ClientRegistrationFlow<'a> {
+pub struct ClientRegistrationFlow<'a, Payload> {
     username: &'a str,
     password: &'a [u8],
     server_public_key: &'a PublicKey,
+    payload: &'a Payload,
     server_identity: Option<&'a str>,
     blinding_key: Option<Scalar>,
 }
 
-impl<'a> ClientRegistrationFlow<'a> {
+impl<'a, P> ClientRegistrationFlow<'a, P>
+where P: Payload
+{
     pub fn new(
         username: &'a str,
         password: &'a [u8],
         server_public_key: &'a PublicKey,
+        payload: &'a P,
         server_identity: Option<&'a str>,
-    ) -> ClientRegistrationFlow<'a> {
+    ) -> ClientRegistrationFlow<'a, P> {
         ClientRegistrationFlow {
             username,
             password,
             server_public_key,
+            payload,
             server_identity,
             blinding_key: None,
         }
@@ -57,7 +63,7 @@ impl<'a> ClientRegistrationFlow<'a> {
         }
     }
 
-    pub fn finish(&self, response: &RegistrationResponse) -> Result<(RegistrationRecord, Digest)> {
+    pub fn finish(&self, response: &RegistrationResponse) -> Result<(RegistrationRecord<P>, Digest)> {
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
         let (_, randomized_pwd_hasher) = primitives::derive_key(&oprf_output)?;
@@ -69,6 +75,7 @@ impl<'a> ClientRegistrationFlow<'a> {
             self.server_public_key,
             self.server_identity,
             Some(&self.username[..]),
+            self.payload.clone(),
         )
     }
 
@@ -78,7 +85,8 @@ impl<'a> ClientRegistrationFlow<'a> {
         server_public_key: &PublicKey,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-    ) -> Result<(RegistrationRecord, Digest)> {
+        payload: P,
+    ) -> Result<(RegistrationRecord<P>, Digest)> {
         let mut nonce = Nonce::default();
         rng.fill_bytes(&mut nonce);
 
@@ -99,7 +107,11 @@ impl<'a> ClientRegistrationFlow<'a> {
             &client_keypair.public_key,
         );
 
-        let aad = [&nonce, &cleartext_credentials.serialize()[..]].concat();
+        let aad = [
+            &nonce,
+            &cleartext_credentials.serialize()[..],
+            &payload.serialize()?[..],
+        ].concat();
 
         let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
         hmac.update(&aad);
@@ -109,6 +121,7 @@ impl<'a> ClientRegistrationFlow<'a> {
             envelope: Envelope { nonce, auth_tag },
             masking_key,
             client_public_key: client_keypair.public_key,
+            payload,
         };
 
         Ok((registration_record, export_key))
@@ -128,7 +141,9 @@ impl<'a> ServerRegistrationFlow<'a> {
         Self::create_registration_response(request, &self.oprf_key)
     }
 
-    pub fn finish(&self, _record: &RegistrationRecord) {
+    pub fn finish<P>(&self, _record: &RegistrationRecord<P>)
+    where P: Payload
+    {
         // we need to decide what to do here
     }
 
@@ -196,10 +211,10 @@ impl<'a> ClientLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE3
-    pub fn finish(
+    pub fn finish<P: Payload>(
         &self,
         server_identity: Option<&str>,
-        ke2: &KeyExchange2,
+        ke2: &KeyExchange2<P>,
     ) -> Result<(KeyExchange3, AuthCode, Digest)> {
         let blinding_key = &self.blinding_key.expect("uninitialized");
 
@@ -209,6 +224,7 @@ impl<'a> ClientLoginFlow<'a> {
             &ke2.credential_response,
             server_identity,
             self.username,
+            &ke2.payload,
         )?;
 
         let (ke3, session_key) =
@@ -217,12 +233,13 @@ impl<'a> ClientLoginFlow<'a> {
         Ok((ke3, session_key, export_key))
     }
 
-    fn recover_credentials(
+    fn recover_credentials<P: Payload>(
         password: &[u8],
         blinding_key: &Scalar,
         response: &CredentialResponse,
         server_identity: Option<&str>,
         username: &str,
+        payload: &P,
     ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)> {
         response.evaluated_element;
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
@@ -247,6 +264,7 @@ impl<'a> ClientLoginFlow<'a> {
             &envelope,
             server_identity,
             Some(username),
+            payload,
         )?;
 
         Ok((
@@ -257,12 +275,13 @@ impl<'a> ClientLoginFlow<'a> {
         ))
     }
 
-    fn recover(
+    fn recover<P: Payload>(
         randomized_pwd: &Kdf,
         server_public_key: &PublicKey,
         envelope: &Envelope,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
+        payload: &P,
     ) -> Result<(SecretKey, CleartextCredentials, Digest)> {
         let auth_key: Digest =
             primitives::expand(randomized_pwd, &[&envelope.nonce, STR_AUTH_KEY])?;
@@ -281,7 +300,11 @@ impl<'a> ClientLoginFlow<'a> {
             &client_keypair.public_key,
         );
 
-        let aad = [&envelope.nonce, &cleartext_credentials.serialize()[..]].concat();
+        let aad = [
+            &envelope.nonce,
+            &cleartext_credentials.serialize()[..],
+            &payload.serialize()?[..],
+        ].concat();
 
         let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
         hmac.update(&aad);
@@ -294,11 +317,11 @@ impl<'a> ClientLoginFlow<'a> {
         Ok((client_keypair.secret_key, cleartext_credentials, export_key))
     }
 
-    fn auth_client_finalize(
+    fn auth_client_finalize<P: Payload>(
         &self,
         cleartext_credentials: &CleartextCredentials,
         client_private_key: &SecretKey,
-        ke2: &KeyExchange2,
+        ke2: &KeyExchange2<P>,
     ) -> Result<(KeyExchange3, AuthCode)> {
         let client_secret = self.client_secret.as_ref().expect("uninitialized");
         let ke1_serialized = self.ke1_serialized.as_ref().expect("uninitialized");
@@ -342,11 +365,13 @@ impl<'a> ClientLoginFlow<'a> {
     }
 }
 
-pub struct ServerLoginFlow<'a> {
+pub struct ServerLoginFlow<'a, P>
+where P: Payload
+{
     server_public_key: &'a PublicKey,
     server_identity: Option<&'a str>,
     ke_keypair: &'a KeyPair,
-    record: &'a RegistrationRecord,
+    record: &'a RegistrationRecord<P>,
     oprf_key: &'a Scalar,
     ke1: &'a KeyExchange1,
     username: &'a str,
@@ -354,12 +379,14 @@ pub struct ServerLoginFlow<'a> {
     expected_client_mac: Option<AuthCode>,
 }
 
-impl<'a> ServerLoginFlow<'a> {
+impl<'a, P> ServerLoginFlow<'a, P>
+where P: Payload
+{
     pub fn new(
         server_public_key: &'a PublicKey,
         server_identity: Option<&'a str>,
         ke_keypair: &'a KeyPair,
-        record: &'a RegistrationRecord,
+        record: &'a RegistrationRecord<P>,
         oprf_key: &'a Scalar,
         ke1: &'a KeyExchange1,
         username: &'a str,
@@ -378,7 +405,7 @@ impl<'a> ServerLoginFlow<'a> {
     }
 
     /// Corresponds to GenerateKE2
-    pub fn start(&mut self) -> Result<KeyExchange2> {
+    pub fn start(&mut self) -> Result<KeyExchange2<P>> {
         let mut server_rng = rand::thread_rng();
         let credential_response = Self::create_credential_response(
             &mut server_rng,
@@ -414,6 +441,7 @@ impl<'a> ServerLoginFlow<'a> {
         Ok(KeyExchange2 {
             credential_response,
             auth_response,
+            payload: self.record.payload.clone(),
         })
     }
 
@@ -431,7 +459,7 @@ impl<'a> ServerLoginFlow<'a> {
         rng: &mut R,
         request: &CredentialRequest,
         server_public_key: &PublicKey,
-        record: &RegistrationRecord,
+        record: &RegistrationRecord<P>,
         username: &str,
         oprf_key: &Scalar,
     ) -> Result<CredentialResponse> {

@@ -8,7 +8,7 @@ use crate::{
     },
     error::InternalError,
     keypair::PublicKey,
-    Result,
+    Result, payload::Payload,
 };
 
 pub struct CleartextCredentials {
@@ -54,10 +54,11 @@ impl Envelope {
     }
 }
 
-pub struct RegistrationRecord {
+pub struct RegistrationRecord<P: Payload> {
     pub envelope: Envelope,
     pub masking_key: Digest,
     pub client_public_key: PublicKey,
+    pub payload: P,
 }
 
 pub struct RegistrationRequest {
@@ -134,9 +135,10 @@ pub struct AuthResponse {
     pub server_mac: AuthCode,
 }
 
-pub struct KeyExchange2 {
+pub struct KeyExchange2<P: Payload> {
     pub credential_response: CredentialResponse,
     pub auth_response: AuthResponse,
+    pub payload: P,
 }
 
 pub struct KeyExchange3 {

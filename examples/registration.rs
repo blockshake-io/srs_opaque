@@ -1,23 +1,74 @@
 use blstrs::Scalar;
 use ff::Field;
 use srs_opaque::{
-    error::Error,
     opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
-    primitives::derive_keypair,
+    primitives::derive_keypair, payload::Payload, ciphersuite::Bytes, error::Error,
 };
+use typenum::{U20, U4, U8};
+
+
+#[derive(Clone)]
+pub struct KsfParams {
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+    output_len: Option<usize>,
+}
+
+
+impl Payload for KsfParams {
+    type Len = U20;
+
+    fn serialize(&self) -> srs_opaque::Result<Bytes<Self::Len>> {
+        use generic_array::sequence::Concat;
+        let mut m_cost = Bytes::<U4>::default();
+        let mut t_cost = Bytes::<U4>::default();
+        let mut p_cost = Bytes::<U4>::default();
+        let mut output_len = Bytes::<U8>::default();
+        m_cost.copy_from_slice(&self.m_cost.to_be_bytes()[..]);
+        t_cost.copy_from_slice(&self.t_cost.to_be_bytes()[..]);
+        p_cost.copy_from_slice(&self.p_cost.to_be_bytes()[..]);
+        output_len.copy_from_slice(&self.output_len.unwrap_or(0).to_be_bytes()[..]);
+        Ok(m_cost.concat(t_cost).concat(p_cost).concat(output_len))
+    }
+
+    fn deserialize(buf: &Bytes<Self::Len>) -> srs_opaque::Result<Self>
+    where Self: Sized
+    {
+        let m_cost = u32::from_be_bytes(buf[0..4].try_into().unwrap());
+        let t_cost = u32::from_be_bytes(buf[4..8].try_into().unwrap());
+        let p_cost = u32::from_be_bytes(buf[8..12].try_into().unwrap());
+        let output_len = usize::from_be_bytes(buf[12..].try_into().unwrap());
+        Ok(KsfParams {
+            m_cost,
+            t_cost,
+            p_cost,
+            output_len: if output_len == 0 { None} else { Some(output_len) },
+        })
+    }
+}
+
 
 fn main() -> Result<(), Error> {
     let server_oprf_key = Scalar::ONE.double();
     let server_keypair = derive_keypair(b"secret seed", b"public info")?;
     let server_identity = "srs.blockshake.io";
 
+    let ksf_params = KsfParams {
+        m_cost: 0,
+        p_cost: 0,
+        t_cost: 0,
+        output_len: None,
+    };
+
     // STEP 1: initiate registration on client
     let username = "my_username";
     let password = b"password";
-    let mut client_flow = ClientRegistrationFlow::new(
+    let mut client_flow = ClientRegistrationFlow::<KsfParams>::new(
         username,
         password,
         &server_keypair.public_key,
+        &ksf_params,
         Some(server_identity),
     );
     let registration_request = client_flow.start();
