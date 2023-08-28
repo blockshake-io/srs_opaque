@@ -356,7 +356,7 @@ where
             client_private_key,
             &ke2.auth_response.server_public_keyshare,
         );
-        let ikm = [dh1, dh2, dh3].concat();
+        let ikm = &[&dh1[..], &dh2[..], &dh3[..]];
 
         let preamble_hasher = primitives::preamble_hasher(
             &cleartext_credentials.client_identity[..],
@@ -369,7 +369,7 @@ where
         )?;
         let hashed_preamble = preamble_hasher.clone().finalize();
 
-        let (km2, km3, session_key) = derive_keys(&ikm[..], &hashed_preamble[..])?;
+        let (km2, km3, session_key) = derive_keys(ikm, &hashed_preamble[..])?;
         let expected_server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
 
         if ke2.auth_response.server_mac != expected_server_mac {
@@ -553,9 +553,9 @@ where
             &ke1.auth_request.client_public_keyshare,
         );
         let dh3 = primitives::diffie_hellman(&server_keypair.secret_key, client_public_key);
-        let ikm = [dh1, dh2, dh3].concat();
+        let ikm = &[&dh1[..], &dh2[..], &dh3[..]];
 
-        let (km2, km3, session_key) = derive_keys(&ikm[..], &hashed_preamble[..])?;
+        let (km2, km3, session_key) = derive_keys(ikm, &hashed_preamble[..])?;
         let server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
         use digest::Update;
         let expected_client_mac =
@@ -571,17 +571,19 @@ where
     }
 }
 
-fn derive_keys(ikm: &[u8], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode, AuthCode)> {
+fn derive_keys(ikm: &[&[u8]], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode, AuthCode)> {
     let mut hkdf = HkdfExtract::<Hash>::new(None);
-    hkdf.input_ikm(ikm);
+    for input in ikm {
+        hkdf.input_ikm(input);
+    }
     let (_, hkdf1) = hkdf.finalize();
 
     let handshake_secret = derive_secret(&hkdf1, STR_HANDSHAKE_SECRET, hashed_preamble)?;
     let session_key = derive_secret(&hkdf1, STR_SESSION_KEY, hashed_preamble)?;
 
-    let hkdf2 = Kdf::from_prk(&handshake_secret[..]).map_err(|_| InternalError::HkdfError)?;
-    let km2 = derive_secret(&hkdf2, STR_SERVER_MAC, b"")?;
-    let km3 = derive_secret(&hkdf2, STR_CLIENT_MAC, b"")?;
+    let hkdf = Kdf::from_prk(&handshake_secret[..]).map_err(|_| InternalError::HkdfError)?;
+    let km2 = derive_secret(&hkdf, STR_SERVER_MAC, b"")?;
+    let km3 = derive_secret(&hkdf, STR_CLIENT_MAC, b"")?;
 
     Ok((km2, km3, session_key))
 }
