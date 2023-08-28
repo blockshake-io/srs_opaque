@@ -278,10 +278,8 @@ where
         let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
-        let mut xor_pad: Bytes<LenMaskedResponse> = primitives::create_xor_pad(
-            &masking_key,
-            &response.masking_nonce,
-        )?;
+        let mut xor_pad: Bytes<LenMaskedResponse> =
+            primitives::create_xor_pad(&masking_key, &response.masking_nonce)?;
 
         for (x1, x2) in xor_pad.iter_mut().zip(&response.masked_response) {
             *x1 ^= x2;
@@ -360,7 +358,7 @@ where
         );
         let ikm = [dh1, dh2, dh3].concat();
 
-        let preamble = primitives::preamble(
+        let preamble_hasher = primitives::preamble_hasher(
             &cleartext_credentials.client_identity[..],
             ke1_serialized,
             &cleartext_credentials.server_identity[..],
@@ -369,7 +367,7 @@ where
             &ke2.auth_response.server_public_keyshare,
             &[],
         )?;
-        let hashed_preamble = primitives::hash(&preamble[..])?;
+        let hashed_preamble = preamble_hasher.clone().finalize();
 
         let (km2, km3, session_key) = derive_keys(&ikm[..], &hashed_preamble[..])?;
         let expected_server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
@@ -378,9 +376,10 @@ where
             return Err(ProtocolError::ServerAuthenticationError.into());
         }
 
+        use digest::Update;
         let client_mac = primitives::mac(
             &km3[..],
-            &primitives::hash(&[&preamble[..], &expected_server_mac[..]].concat()[..])?[..],
+            &preamble_hasher.chain(&expected_server_mac).finalize(),
         )?;
 
         let ke3 = KeyExchange3 { client_mac };
@@ -502,10 +501,8 @@ where
         let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
 
-        let mut xor_pad: Bytes<LenMaskedResponse> = primitives::create_xor_pad(
-            &record.masking_key,
-            &masking_nonce,
-        )?;
+        let mut xor_pad: Bytes<LenMaskedResponse> =
+            primitives::create_xor_pad(&record.masking_key, &masking_nonce)?;
 
         let server_public_key = server_public_key.serialize();
         let envelope = record.envelope.serialize();
@@ -529,7 +526,6 @@ where
         ke1: &KeyExchange1,
         credential_response: &CredentialResponse,
     ) -> Result<(AuthResponse, AuthCode, AuthCode)> {
-        // corresponds to AuthClientStart
         let mut server_nonce = Nonce::default();
         rng.fill_bytes(&mut server_nonce);
         let mut server_keyshare_seed = Seed::default();
@@ -537,7 +533,7 @@ where
         let server_keypair =
             primitives::derive_keypair(&server_keyshare_seed, STR_DERIVE_DIFFIE_HELLMAN)?;
 
-        let preamble = primitives::preamble(
+        let preamble_hasher = primitives::preamble_hasher(
             &cleartext_credentials.client_identity[..],
             &ke1.serialize()[..],
             &cleartext_credentials.server_identity[..],
@@ -546,7 +542,7 @@ where
             &server_keypair.public_key,
             &[],
         )?;
-        let hashed_preamble = primitives::hash(&preamble[..])?;
+        let hashed_preamble = preamble_hasher.clone().finalize();
 
         let dh1 = primitives::diffie_hellman(
             &server_keypair.secret_key,
@@ -561,10 +557,9 @@ where
 
         let (km2, km3, session_key) = derive_keys(&ikm[..], &hashed_preamble[..])?;
         let server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
-        let expected_client_mac = primitives::mac(
-            &km3[..],
-            &primitives::hash(&[&preamble[..], &server_mac[..]].concat()[..])?[..],
-        )?;
+        use digest::Update;
+        let expected_client_mac =
+            primitives::mac(&km3[..], &preamble_hasher.chain(&server_mac).finalize())?;
 
         let auth_response = AuthResponse {
             server_nonce,

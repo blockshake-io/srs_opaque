@@ -2,7 +2,7 @@ use generic_array::GenericArray;
 use typenum::{Sum, U288, U32, U64};
 
 // provides the digest function on Hash
-pub use sha2::Digest as _;
+pub use digest::Digest as _;
 // provides the new_from_slice function on Hmac
 pub use hmac::Mac as _;
 

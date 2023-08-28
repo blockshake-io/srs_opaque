@@ -87,11 +87,9 @@ pub fn extract_kdf(ikms: &[&[u8]]) -> Result<Kdf> {
     Ok(hasher)
 }
 
-pub fn create_xor_pad<L>(
-    masking_key: &[u8],
-    masking_nonce: &[u8],
-) -> Result<Bytes<L>>
-where L: ArrayLength<u8>
+pub fn create_xor_pad<L>(masking_key: &[u8], masking_nonce: &[u8]) -> Result<Bytes<L>>
+where
+    L: ArrayLength<u8>,
 {
     let mut xor_pad = GenericArray::default();
     Kdf::from_prk(masking_key)
@@ -106,30 +104,30 @@ pub fn diffie_hellman(secret_key: &SecretKey, public_key: &PublicKey) -> PublicK
     dh.compress().to_bytes().into()
 }
 
-pub fn preamble(
-    username: &[u8],
+pub fn preamble_hasher(
+    client_identity: &[u8],
     ke1_message: &[u8],
     server_identity: &[u8],
     credential_response: &[u8],
     server_nonce: &[u8],
     server_public_keyshare: &PublicKey,
     context: &[u8],
-) -> Result<Vec<u8>> {
+) -> Result<Hash> {
     let len_context = i2osp_2(context.len())?;
-    let len_username = i2osp_2(username.len())?;
+    let len_client_id = i2osp_2(client_identity.len())?;
     let len_server_identity = i2osp_2(server_identity.len())?;
-    Ok([
-        &STR_RFC[..],
-        &len_context[..],
-        context,
-        &len_username[..],
-        username,
-        ke1_message,
-        &len_server_identity[..],
-        &server_identity[..],
-        credential_response,
-        server_nonce,
-        &server_public_keyshare.serialize()[..],
-    ]
-    .concat())
+    let hasher = Hash::new();
+    use digest::Update;
+    Ok(hasher
+        .chain(STR_RFC)
+        .chain(len_context)
+        .chain(context)
+        .chain(len_client_id)
+        .chain(client_identity)
+        .chain(ke1_message)
+        .chain(len_server_identity)
+        .chain(server_identity)
+        .chain(credential_response)
+        .chain(server_nonce)
+        .chain(server_public_keyshare.serialize()))
 }

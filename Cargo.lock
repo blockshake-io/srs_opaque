@@ -443,6 +443,7 @@ dependencies = [
  "argon2",
  "blstrs",
  "curve25519-dalek",
+ "digest",
  "elliptic-curve",
  "ff",
  "generic-array",
