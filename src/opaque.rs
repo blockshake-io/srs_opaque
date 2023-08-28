@@ -278,9 +278,9 @@ where
         let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
-        let mut xor_pad = primitives::create_credential_response_xor_pad(
-            &masking_key[..],
-            &response.masking_nonce[..],
+        let mut xor_pad: Bytes<LenMaskedResponse> = primitives::create_xor_pad(
+            &masking_key,
+            &response.masking_nonce,
         )?;
 
         for (x1, x2) in xor_pad.iter_mut().zip(&response.masked_response) {
@@ -502,23 +502,22 @@ where
         let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
 
-        let xor_pad = primitives::create_credential_response_xor_pad(
+        let mut xor_pad: Bytes<LenMaskedResponse> = primitives::create_xor_pad(
             &record.masking_key,
-            &masking_nonce[..],
+            &masking_nonce,
         )?;
 
-        let mut masked_response = Bytes::default();
-        masked_response[0..32].copy_from_slice(&server_public_key.serialize()[..]);
-        masked_response[32..].copy_from_slice(&record.envelope.serialize()[..]);
-
-        for (x1, x2) in masked_response.iter_mut().zip(&xor_pad) {
+        let server_public_key = server_public_key.serialize();
+        let envelope = record.envelope.serialize();
+        let credential_response = server_public_key.iter().chain(&envelope);
+        for (x1, x2) in xor_pad.iter_mut().zip(credential_response) {
             *x1 ^= x2;
         }
 
         Ok(CredentialResponse {
             evaluated_element,
             masking_nonce,
-            masked_response,
+            masked_response: xor_pad,
         })
     }
 

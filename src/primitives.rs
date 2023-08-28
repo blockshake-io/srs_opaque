@@ -87,10 +87,12 @@ pub fn extract_kdf(ikms: &[&[u8]]) -> Result<Kdf> {
     Ok(hasher)
 }
 
-pub fn create_credential_response_xor_pad(
+pub fn create_xor_pad<L>(
     masking_key: &[u8],
     masking_nonce: &[u8],
-) -> Result<Bytes<LenMaskedResponse>> {
+) -> Result<Bytes<L>>
+where L: ArrayLength<u8>
+{
     let mut xor_pad = GenericArray::default();
     Kdf::from_prk(masking_key)
         .map_err(|_| InternalError::HkdfError)?
