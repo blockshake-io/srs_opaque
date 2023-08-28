@@ -72,13 +72,13 @@ where
     }
 
     /// Corresponds to FinalizeRegistrationRequest
-    pub fn finish<S>(
+    pub fn finish<Stretch>(
         &self,
         response: &RegistrationResponse,
-        stretch: S,
+        stretch: Stretch,
     ) -> Result<(RegistrationRecord<P>, Digest)>
     where
-        S: Fn(&[u8]) -> Result<Digest>,
+        Stretch: Fn(&[u8]) -> Result<Digest>,
     {
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
