@@ -5,6 +5,7 @@ use crate::{
     error::{Error, InternalError},
 };
 
+#[derive(Clone)]
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {

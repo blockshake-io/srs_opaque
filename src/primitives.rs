@@ -84,18 +84,13 @@ pub fn mac(key: &[u8], msg: &[u8]) -> Result<AuthCode> {
         .map_err(|_| InternalError::HmacError)?)
 }
 
-pub fn derive_key<S>(oprf_output: &[u8], ksf: S) -> Result<(Digest, Kdf)>
-where
-    S: Fn(&[u8]) -> Result<Digest>,
-{
-    let stretched_oprf_output = ksf(&oprf_output)?;
-
+pub fn extract_kdf(ikms: &[&[u8]]) -> Result<Kdf> {
     let mut hkdf = HkdfExtract::<Hash>::new(None);
-    hkdf.input_ikm(&oprf_output);
-    hkdf.input_ikm(&stretched_oprf_output);
-    let (randomized_pwd, randomized_pwd_hasher) = hkdf.finalize();
-
-    Ok((randomized_pwd, randomized_pwd_hasher))
+    for input in ikms {
+        hkdf.input_ikm(input);
+    }
+    let (_, hasher) = hkdf.finalize();
+    Ok(hasher)
 }
 
 pub fn create_credential_response_xor_pad(

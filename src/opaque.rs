@@ -67,22 +67,24 @@ where
         }
     }
 
+    /// Corresponds to FinalizeRegistrationRequest
     pub fn finish<S>(
         &self,
         response: &RegistrationResponse,
-        ksf: S,
+        stretch: S,
     ) -> Result<(RegistrationRecord<P>, Digest)>
     where
         S: Fn(&[u8]) -> Result<Digest>,
     {
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
-        let (_, randomized_pwd_hasher) = primitives::derive_key(&oprf_output, ksf)?;
+        let stretched_oprf_output = stretch(&oprf_output)?;
+        let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
 
         let mut client_rng = rand::thread_rng();
         Self::store(
             &mut client_rng,
-            &randomized_pwd_hasher,
+            &randomized_pwd,
             self.server_public_key,
             self.server_identity,
             Some(&self.username[..]),
@@ -142,15 +144,31 @@ where
 
 pub struct ServerRegistrationFlow<'a> {
     oprf_key: &'a Scalar,
+    server_public_key: &'a PublicKey,
 }
 
 impl<'a> ServerRegistrationFlow<'a> {
-    pub fn new(oprf_key: &'a Scalar) -> ServerRegistrationFlow {
-        ServerRegistrationFlow { oprf_key }
+    pub fn new(
+        oprf_key: &'a Scalar,
+        server_public_key: &'a PublicKey,
+    ) -> ServerRegistrationFlow<'a> {
+        ServerRegistrationFlow {
+            oprf_key,
+            server_public_key,
+        }
     }
 
+    /// Corresponds to CreateRegistrationResponse
     pub fn start(&self, request: &RegistrationRequest) -> RegistrationResponse {
-        Self::create_registration_response(request, &self.oprf_key)
+        let evaluated_element = oprf::evaluate(
+            &request.blinded_element,
+            request.username.as_bytes(),
+            self.oprf_key,
+        );
+        RegistrationResponse {
+            evaluated_element,
+            server_public_key: self.server_public_key.clone(),
+        }
     }
 
     pub fn finish<P>(&self, _record: &RegistrationRecord<P>)
@@ -158,18 +176,6 @@ impl<'a> ServerRegistrationFlow<'a> {
         P: Payload,
     {
         // we need to decide what to do here
-    }
-
-    pub fn create_registration_response(
-        request: &RegistrationRequest,
-        oprf_key: &Scalar,
-    ) -> RegistrationResponse {
-        let evaluated_element = oprf::evaluate(
-            &request.blinded_element,
-            request.username.as_bytes(),
-            oprf_key,
-        );
-        RegistrationResponse { evaluated_element }
     }
 }
 
@@ -228,7 +234,7 @@ impl<'a> ClientLoginFlow<'a> {
         &self,
         server_identity: Option<&str>,
         ke2: &KeyExchange2<P>,
-        ksf: S,
+        stretch: S,
     ) -> Result<(KeyExchange3, AuthCode, Digest)>
     where
         S: Fn(&[u8]) -> Result<Digest>,
@@ -242,7 +248,7 @@ impl<'a> ClientLoginFlow<'a> {
             server_identity,
             self.username,
             &ke2.payload,
-            ksf,
+            stretch,
         )?;
 
         let (ke3, session_key) =
@@ -258,14 +264,15 @@ impl<'a> ClientLoginFlow<'a> {
         server_identity: Option<&str>,
         username: &str,
         payload: &P,
-        ksf: S,
+        stretch: S,
     ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)>
     where
         S: Fn(&[u8]) -> Result<Digest>,
     {
         response.evaluated_element;
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
-        let (_, randomized_pwd) = primitives::derive_key(&oprf_output, ksf)?;
+        let stretched_oprf_output = stretch(&oprf_output)?;
+        let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
         let mut xor_pad = primitives::create_credential_response_xor_pad(

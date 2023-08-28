@@ -99,7 +99,7 @@ fn main() -> Result<()> {
     let registration_request = client_flow.start();
 
     // STEP 2: proceed registration on server, evaluate OPRF
-    let server_flow = ServerRegistrationFlow::new(&server_oprf_key);
+    let server_flow = ServerRegistrationFlow::new(&server_oprf_key, &server_keypair.public_key);
     let registration_response = server_flow.start(&registration_request);
 
     // STEP 3: finish registration on client, create registration record

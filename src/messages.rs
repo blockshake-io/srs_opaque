@@ -69,6 +69,7 @@ pub struct RegistrationRequest {
 
 pub struct RegistrationResponse {
     pub evaluated_element: Gt,
+    pub server_public_key: PublicKey,
 }
 
 pub struct CredentialRequest {
