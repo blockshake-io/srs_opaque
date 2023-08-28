@@ -92,6 +92,7 @@ where
         )
     }
 
+    /// Corresponds to Store
     pub fn store<R: CryptoRng + RngCore>(
         rng: &mut R,
         randomized_pwd: &Kdf,
@@ -116,20 +117,14 @@ where
         };
         let cleartext_credentials = create_cleartext_credentials(
             &identifiers,
-            &server_public_key,
-            &client_keypair.public_key,
-        );
-
-        let aad = [
+            server_public_key,
+            &client_keypair.public_key);
+        let auth_tag = construct_auth_tag(
+            &auth_key,
+            &cleartext_credentials,
             &nonce,
-            &cleartext_credentials.serialize()[..],
-            &payload.serialize()?[..],
-        ]
-        .concat();
-
-        let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
-        hmac.update(&aad);
-        let auth_tag = hmac.finalize().into_bytes().into();
+            &payload,
+        )?;
 
         let registration_record = RegistrationRecord {
             envelope: Envelope { nonce, auth_tag },
@@ -328,17 +323,12 @@ impl<'a> ClientLoginFlow<'a> {
             &server_public_key,
             &client_keypair.public_key,
         );
-
-        let aad = [
+        let expected_tag = construct_auth_tag(
+            &auth_key,
+            &cleartext_credentials,
             &envelope.nonce,
-            &cleartext_credentials.serialize()[..],
-            &payload.serialize()?[..],
-        ]
-        .concat();
-
-        let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
-        hmac.update(&aad);
-        let expected_tag: AuthCode = hmac.finalize().into_bytes().into();
+            payload,
+        )?;
 
         if envelope.auth_tag != expected_tag {
             return Err(ProtocolError::EnvelopeRecoveryError.into());
@@ -628,4 +618,20 @@ fn create_cleartext_credentials(
         server_identity: Vec::from(server_id),
         client_identity: Vec::from(client_id),
     }
+}
+
+
+fn construct_auth_tag<P: Payload>(
+    auth_key: &[u8],
+    cleartext_credentials: &CleartextCredentials,
+    nonce: &[u8],
+    payload: &P,
+) -> Result<AuthCode> {
+    let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
+    hmac.update(nonce);
+    hmac.update(&cleartext_credentials.server_public_key);
+    hmac.update(&cleartext_credentials.server_identity);
+    hmac.update(&cleartext_credentials.client_identity);
+    hmac.update(&payload.serialize()?);
+    Ok(hmac.finalize().into_bytes())
 }

@@ -1,4 +1,4 @@
-use curve25519_dalek::{scalar::Scalar, RistrettoPoint};
+use curve25519_dalek::scalar::Scalar;
 use ff::Field;
 use generic_array::{ArrayLength, GenericArray};
 use hkdf::HkdfExtract;
