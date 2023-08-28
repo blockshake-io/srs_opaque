@@ -9,29 +9,20 @@ use crate::{
     keypair::{KeyPair, PublicKey, SecretKey},
     Result,
 };
-use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXmd, Expander};
+use elliptic_curve::{hash2curve::{ExpandMsg, ExpandMsgXmd, Expander}, subtle::ConstantTimeEq};
 
 pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair> {
     let info_len = self::i2osp_2(info.len())?;
-    let mut sk_s = Scalar::ZERO;
-
-    let counter = 0;
-    while sk_s == Scalar::ZERO {
-        if counter > 255 {
-            return Err(InternalError::DeriveKeyError.into());
-        }
-
-        let counter_bytes = i2osp_2(counter)?;
-        sk_s = hash_to_scalar(
-            &[seed, &info_len, info, &counter_bytes],
+    for counter in 0..u8::MAX {
+        let sk_s = hash_to_scalar(
+            &[seed, &info_len, info, &counter.to_be_bytes()],
             &[STR_DERIVE_KEYPAIR, STR_CONTEXT],
         )?;
+        if !bool::from(sk_s.ct_eq(&Scalar::ZERO)) {
+            return Ok(KeyPair::from_secret_key(sk_s));
+        }
     }
-
-    Ok(KeyPair {
-        secret_key: SecretKey(sk_s),
-        public_key: PublicKey(RistrettoPoint::mul_base(&sk_s)),
-    })
+    Err(InternalError::DeriveKeyError.into())
 }
 
 // Implements the `HashToScalar()` function from

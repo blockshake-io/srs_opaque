@@ -35,3 +35,13 @@ pub struct KeyPair {
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
 }
+
+
+impl KeyPair {
+    pub fn from_secret_key(sk: Scalar) -> Self {
+        Self {
+            secret_key: SecretKey(sk),
+            public_key: PublicKey(RistrettoPoint::mul_base(&sk))
+        }
+    }
+}
