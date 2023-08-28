@@ -272,7 +272,6 @@ where
     where
         S: Fn(&[u8]) -> Result<Digest>,
     {
-        response.evaluated_element;
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
         let stretched_oprf_output = stretch(&oprf_output)?;
         let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
@@ -285,8 +284,10 @@ where
             *x1 ^= x2;
         }
 
-        let server_public_key = PublicKey::deserialize(&xor_pad[0..32])?;
-        let envelope = Envelope::deserialize(&xor_pad[32..])?;
+        // TODO: shhould we move serialization/deserialization into a new type & function
+        let len_pk = LenKePublicKey::to_usize();
+        let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk])?;
+        let envelope = Envelope::deserialize(&xor_pad[len_pk..])?;
 
         let (client_private_key, cleartext_credentials, export_key) = Self::recover(
             &randomized_pwd,
@@ -474,7 +475,7 @@ where
         })
     }
 
-    /// Corresponds to GenerateKE2
+    /// Corresponds to ServerFinish
     pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode> {
         let expected_client_mac = self.expected_client_mac.as_ref().expect("uninitialized");
         if ke3.client_mac == *expected_client_mac {
