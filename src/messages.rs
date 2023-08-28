@@ -64,7 +64,7 @@ pub struct RegistrationRecord<P: Payload> {
 
 pub struct RegistrationRequest {
     pub blinded_element: G2Affine,
-    pub username: String,
+    pub client_identity: String,
 }
 
 pub struct RegistrationResponse {

@@ -29,7 +29,7 @@ pub struct Identifiers<'a> {
 }
 
 pub struct ClientRegistrationFlow<'a, Payload> {
-    username: &'a str,
+    client_identity: &'a str,
     password: &'a [u8],
     server_public_key: &'a PublicKey,
     payload: &'a Payload,
@@ -42,14 +42,14 @@ where
     P: Payload,
 {
     pub fn new(
-        username: &'a str,
+        client_identity: &'a str,
         password: &'a [u8],
         server_public_key: &'a PublicKey,
         payload: &'a P,
         server_identity: Option<&'a str>,
     ) -> ClientRegistrationFlow<'a, P> {
         ClientRegistrationFlow {
-            username,
+            client_identity,
             password,
             server_public_key,
             payload,
@@ -62,7 +62,7 @@ where
         let result = oprf::blind(self.password);
         self.blinding_key = Some(result.blinding_key);
         RegistrationRequest {
-            username: self.username.to_string(),
+            client_identity: self.client_identity.to_string(),
             blinded_element: result.blinded_element,
         }
     }
@@ -87,7 +87,7 @@ where
             &randomized_pwd,
             self.server_public_key,
             self.server_identity,
-            Some(&self.username[..]),
+            Some(&self.client_identity[..]),
             self.payload.clone(),
         )
     }
@@ -157,7 +157,7 @@ impl<'a> ServerRegistrationFlow<'a> {
     pub fn start(&self, request: &RegistrationRequest) -> RegistrationResponse {
         let evaluated_element = oprf::evaluate(
             &request.blinded_element,
-            request.username.as_bytes(),
+            request.client_identity.as_bytes(),
             self.oprf_key,
         );
         RegistrationResponse {
@@ -175,7 +175,7 @@ impl<'a> ServerRegistrationFlow<'a> {
 }
 
 pub struct ClientLoginFlow<'a> {
-    username: &'a str,
+    client_identity: &'a str,
     password: &'a [u8],
     blinding_key: Option<Scalar>,
     client_secret: Option<SecretKey>,
@@ -183,9 +183,9 @@ pub struct ClientLoginFlow<'a> {
 }
 
 impl<'a> ClientLoginFlow<'a> {
-    pub fn new(username: &'a str, password: &'a [u8]) -> ClientLoginFlow<'a> {
+    pub fn new(client_identity: &'a str, password: &'a [u8]) -> ClientLoginFlow<'a> {
         ClientLoginFlow {
-            username,
+            client_identity,
             password,
             blinding_key: None,
             client_secret: None,
@@ -241,7 +241,7 @@ impl<'a> ClientLoginFlow<'a> {
             blinding_key,
             &ke2.credential_response,
             server_identity,
-            self.username,
+            self.client_identity,
             &ke2.payload,
             stretch,
         )?;
@@ -257,7 +257,7 @@ impl<'a> ClientLoginFlow<'a> {
         blinding_key: &Scalar,
         response: &CredentialResponse,
         server_identity: Option<&str>,
-        username: &str,
+        client_identity: &str,
         payload: &P,
         stretch: S,
     ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)>
@@ -287,7 +287,7 @@ impl<'a> ClientLoginFlow<'a> {
             &server_public_key,
             &envelope,
             server_identity,
-            Some(username),
+            Some(client_identity),
             payload,
         )?;
 
@@ -395,7 +395,7 @@ where
     record: &'a RegistrationRecord<P>,
     oprf_key: &'a Scalar,
     ke1: &'a KeyExchange1,
-    username: &'a str,
+    client_identity: &'a str,
     session_key: Option<AuthCode>,
     expected_client_mac: Option<AuthCode>,
 }
@@ -411,7 +411,7 @@ where
         record: &'a RegistrationRecord<P>,
         oprf_key: &'a Scalar,
         ke1: &'a KeyExchange1,
-        username: &'a str,
+        client_identity: &'a str,
     ) -> Self {
         Self {
             server_public_key,
@@ -420,7 +420,7 @@ where
             record,
             oprf_key,
             ke1,
-            username,
+            client_identity,
             session_key: None,
             expected_client_mac: None,
         }
@@ -434,12 +434,12 @@ where
             &self.ke1.credential_request,
             self.server_public_key,
             self.record,
-            self.username,
+            self.client_identity,
             self.oprf_key,
         )?;
 
         let ids = Identifiers {
-            client: Some(self.username.as_bytes()),
+            client: Some(self.client_identity.as_bytes()),
             server: self.server_identity.map(|x| x.as_bytes()),
         };
         let cleartext_credentials = create_cleartext_credentials(
@@ -482,11 +482,11 @@ where
         request: &CredentialRequest,
         server_public_key: &PublicKey,
         record: &RegistrationRecord<P>,
-        username: &str,
+        client_identity: &str,
         oprf_key: &Scalar,
     ) -> Result<CredentialResponse> {
         let evaluated_element =
-            oprf::evaluate(&request.blinded_element, username.as_bytes(), oprf_key);
+            oprf::evaluate(&request.blinded_element, client_identity.as_bytes(), oprf_key);
 
         let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
