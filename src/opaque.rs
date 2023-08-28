@@ -1,4 +1,5 @@
 use blstrs::Scalar;
+use elliptic_curve::subtle::ConstantTimeEq;
 use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
 use typenum::Unsigned;
@@ -333,11 +334,11 @@ where
         let expected_tag =
             construct_auth_tag(&auth_key, &cleartext_credentials, &envelope.nonce, payload)?;
 
-        if envelope.auth_tag != expected_tag {
-            return Err(ProtocolError::EnvelopeRecoveryError.into());
+        if bool::from(expected_tag.ct_eq(&envelope.auth_tag)) {
+            Ok((client_keypair.secret_key, cleartext_credentials, export_key))
+        } else {
+            Err(ProtocolError::EnvelopeRecoveryError.into())
         }
-
-        Ok((client_keypair.secret_key, cleartext_credentials, export_key))
     }
 
     fn auth_client_finalize<P: Payload>(
@@ -373,7 +374,7 @@ where
         let (km2, km3, session_key) = derive_keys(ikm, &hashed_preamble[..])?;
         let expected_server_mac = primitives::mac(&km2[..], &hashed_preamble[..])?;
 
-        if ke2.auth_response.server_mac != expected_server_mac {
+        if !bool::from(expected_server_mac.ct_eq(&ke2.auth_response.server_mac)) {
             return Err(ProtocolError::ServerAuthenticationError.into());
         }
 
@@ -383,9 +384,7 @@ where
             &preamble_hasher.chain(&expected_server_mac).finalize(),
         )?;
 
-        let ke3 = KeyExchange3 { client_mac };
-
-        Ok((ke3, session_key))
+        Ok((KeyExchange3 { client_mac }, session_key))
     }
 }
 
@@ -477,8 +476,8 @@ where
 
     /// Corresponds to ServerFinish
     pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode> {
-        let expected_client_mac = self.expected_client_mac.as_ref().expect("uninitialized");
-        if ke3.client_mac == *expected_client_mac {
+        let expected_client_mac = self.expected_client_mac.expect("uninitialized");
+        if bool::from(ke3.client_mac.ct_eq(&expected_client_mac)) {
             Ok(self.session_key.expect("uninitialized"))
         } else {
             Err(ProtocolError::ServerAuthenticationError.into())
