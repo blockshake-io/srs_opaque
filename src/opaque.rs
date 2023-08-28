@@ -389,9 +389,10 @@ where
     }
 }
 
-pub struct ServerLoginFlow<'a, P>
+pub struct ServerLoginFlow<'a, P, Rng>
 where
     P: Payload,
+    Rng: CryptoRng + RngCore,
 {
     server_public_key: &'a PublicKey,
     server_identity: Option<&'a str>,
@@ -402,11 +403,13 @@ where
     client_identity: &'a str,
     session_key: Option<AuthCode>,
     expected_client_mac: Option<AuthCode>,
+    rng: Rng,
 }
 
-impl<'a, P> ServerLoginFlow<'a, P>
+impl<'a, P, Rng> ServerLoginFlow<'a, P, Rng>
 where
     P: Payload,
+    Rng: CryptoRng + RngCore,
 {
     pub fn new(
         server_public_key: &'a PublicKey,
@@ -416,6 +419,7 @@ where
         oprf_key: &'a Scalar,
         ke1: &'a KeyExchange1,
         client_identity: &'a str,
+        rng: Rng,
     ) -> Self {
         Self {
             server_public_key,
@@ -427,14 +431,14 @@ where
             client_identity,
             session_key: None,
             expected_client_mac: None,
+            rng,
         }
     }
 
     /// Corresponds to GenerateKE2
     pub fn start(&mut self) -> Result<KeyExchange2<P>> {
-        let mut server_rng = rand::thread_rng();
         let credential_response = Self::create_credential_response(
-            &mut server_rng,
+            &mut self.rng,
             &self.ke1.credential_request,
             self.server_public_key,
             self.record,
@@ -453,7 +457,7 @@ where
         );
 
         let (auth_response, session_key, expected_client_mac) = Self::auth_server_respond(
-            &mut server_rng,
+            &mut self.rng,
             &cleartext_credentials,
             &self.ke_keypair.secret_key,
             &self.record.client_public_key,

@@ -147,6 +147,7 @@ fn main() -> Result<()> {
         &server_oprf_key,
         &ke1,
         username,
+        rand::thread_rng(),
     );
     let ke2 = server_flow.start()?;
 
