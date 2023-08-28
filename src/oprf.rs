@@ -1,5 +1,6 @@
 use blstrs::{pairing, Compress, G1Affine, G1Projective, G2Affine, G2Projective, Gt, Scalar};
 use ff::Field;
+use rand::{CryptoRng, RngCore};
 
 use crate::{
     ciphersuite::*,
@@ -13,12 +14,12 @@ pub struct BlindResult {
     pub blinded_element: G2Affine,
 }
 
-pub fn blind(password: &[u8]) -> BlindResult {
+pub fn blind<R: CryptoRng + RngCore>(password: &[u8], rng: &mut R) -> BlindResult {
     // generate a random, non-zero blinding key. The key must be
     // non-zero as it must be inverted for unblinding
     let mut blinding_key = Scalar::ZERO;
     while blinding_key == Scalar::ZERO {
-        blinding_key = Scalar::random(rand::thread_rng());
+        blinding_key = Scalar::random(&mut *rng);
     }
 
     let element = G2Projective::hash_to_curve(password, DST, &[]);

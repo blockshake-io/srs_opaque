@@ -9,7 +9,10 @@ use crate::{
     keypair::{KeyPair, PublicKey, SecretKey},
     Result,
 };
-use elliptic_curve::{hash2curve::{ExpandMsg, ExpandMsgXmd, Expander}, subtle::ConstantTimeEq};
+use elliptic_curve::{
+    hash2curve::{ExpandMsg, ExpandMsgXmd, Expander},
+    subtle::ConstantTimeEq,
+};
 
 pub fn derive_keypair(seed: &[u8], info: &[u8]) -> Result<KeyPair> {
     let info_len = self::i2osp_2(info.len())?;

@@ -1,5 +1,6 @@
 use blstrs::Scalar;
 use ff::Field;
+use rand::rngs::ThreadRng;
 use srs_opaque::{
     ciphersuite::{Bytes, Digest},
     error::InternalError,
@@ -86,15 +87,20 @@ fn main() -> Result<()> {
         output_len: None,
     };
 
+    //////////////////////
+    //// Registration ////
+    //////////////////////
+
     // STEP 1: initiate registration on client
     let username = "my_username";
     let password = b"password";
-    let mut client_flow = ClientRegistrationFlow::<KsfParams>::new(
+    let mut client_flow = ClientRegistrationFlow::<KsfParams, ThreadRng>::new(
         username,
         password,
         &server_keypair.public_key,
         &ksf_params,
         Some(server_identity),
+        rand::thread_rng(),
     );
     let registration_request = client_flow.start();
 
@@ -126,12 +132,10 @@ fn main() -> Result<()> {
     //// LOGIN ////
     ///////////////
 
-    let mut rng = rand::thread_rng();
-
     // STEP 1: initiate registration on client
 
-    let mut client_flow = ClientLoginFlow::new(username, password);
-    let ke1 = client_flow.start(&mut rng)?;
+    let mut client_flow = ClientLoginFlow::new(username, password, rand::thread_rng());
+    let ke1 = client_flow.start()?;
 
     // STEP 2: evaluate login on server
 

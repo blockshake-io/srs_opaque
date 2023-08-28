@@ -28,18 +28,20 @@ pub struct Identifiers<'a> {
     pub server: Option<&'a [u8]>,
 }
 
-pub struct ClientRegistrationFlow<'a, Payload> {
+pub struct ClientRegistrationFlow<'a, Payload, Rng: CryptoRng + RngCore> {
     client_identity: &'a str,
     password: &'a [u8],
     server_public_key: &'a PublicKey,
     payload: &'a Payload,
     server_identity: Option<&'a str>,
     blinding_key: Option<Scalar>,
+    rng: Rng,
 }
 
-impl<'a, P> ClientRegistrationFlow<'a, P>
+impl<'a, P, Rng> ClientRegistrationFlow<'a, P, Rng>
 where
     P: Payload,
+    Rng: CryptoRng + RngCore,
 {
     pub fn new(
         client_identity: &'a str,
@@ -47,7 +49,8 @@ where
         server_public_key: &'a PublicKey,
         payload: &'a P,
         server_identity: Option<&'a str>,
-    ) -> ClientRegistrationFlow<'a, P> {
+        rng: Rng,
+    ) -> ClientRegistrationFlow<'a, P, Rng> {
         ClientRegistrationFlow {
             client_identity,
             password,
@@ -55,11 +58,12 @@ where
             payload,
             server_identity,
             blinding_key: None,
+            rng,
         }
     }
 
     pub fn start(&mut self) -> RegistrationRequest {
-        let result = oprf::blind(self.password);
+        let result = oprf::blind(self.password, &mut self.rng);
         self.blinding_key = Some(result.blinding_key);
         RegistrationRequest {
             client_identity: self.client_identity.to_string(),
@@ -118,13 +122,9 @@ where
         let cleartext_credentials = create_cleartext_credentials(
             &identifiers,
             server_public_key,
-            &client_keypair.public_key);
-        let auth_tag = construct_auth_tag(
-            &auth_key,
-            &cleartext_credentials,
-            &nonce,
-            &payload,
-        )?;
+            &client_keypair.public_key,
+        );
+        let auth_tag = construct_auth_tag(&auth_key, &cleartext_credentials, &nonce, &payload)?;
 
         let registration_record = RegistrationRecord {
             envelope: Envelope { nonce, auth_tag },
@@ -174,29 +174,37 @@ impl<'a> ServerRegistrationFlow<'a> {
     }
 }
 
-pub struct ClientLoginFlow<'a> {
+pub struct ClientLoginFlow<'a, Rng>
+where
+    Rng: CryptoRng + RngCore,
+{
     client_identity: &'a str,
     password: &'a [u8],
     blinding_key: Option<Scalar>,
     client_secret: Option<SecretKey>,
     ke1_serialized: Option<[u8; 160]>,
+    rng: Rng,
 }
 
-impl<'a> ClientLoginFlow<'a> {
-    pub fn new(client_identity: &'a str, password: &'a [u8]) -> ClientLoginFlow<'a> {
+impl<'a, Rng> ClientLoginFlow<'a, Rng>
+where
+    Rng: CryptoRng + RngCore,
+{
+    pub fn new(client_identity: &'a str, password: &'a [u8], rng: Rng) -> ClientLoginFlow<'a, Rng> {
         ClientLoginFlow {
             client_identity,
             password,
             blinding_key: None,
             client_secret: None,
             ke1_serialized: None,
+            rng,
         }
     }
 
     /// Corresponds to GenerateKE1
-    pub fn start<R: CryptoRng + RngCore>(&mut self, rng: &mut R) -> Result<KeyExchange1> {
+    pub fn start(&mut self) -> Result<KeyExchange1> {
         // corresponds to CreateCredentialRequest
-        let blind_result = oprf::blind(self.password);
+        let blind_result = oprf::blind(self.password, &mut self.rng);
         self.blinding_key = Some(blind_result.blinding_key);
         let credential_request = CredentialRequest {
             blinded_element: blind_result.blinded_element,
@@ -204,9 +212,9 @@ impl<'a> ClientLoginFlow<'a> {
 
         // corresponds to AuthClientStart
         let mut client_nonce = Nonce::default();
-        rng.fill_bytes(&mut client_nonce);
+        self.rng.fill_bytes(&mut client_nonce);
         let mut client_keyshare_seed = Seed::default();
-        rng.fill_bytes(&mut client_keyshare_seed);
+        self.rng.fill_bytes(&mut client_keyshare_seed);
         let client_keypair =
             primitives::derive_keypair(&client_keyshare_seed, STR_DERIVE_DIFFIE_HELLMAN)?;
         let auth_request = AuthRequest {
@@ -323,12 +331,8 @@ impl<'a> ClientLoginFlow<'a> {
             &server_public_key,
             &client_keypair.public_key,
         );
-        let expected_tag = construct_auth_tag(
-            &auth_key,
-            &cleartext_credentials,
-            &envelope.nonce,
-            payload,
-        )?;
+        let expected_tag =
+            construct_auth_tag(&auth_key, &cleartext_credentials, &envelope.nonce, payload)?;
 
         if envelope.auth_tag != expected_tag {
             return Err(ProtocolError::EnvelopeRecoveryError.into());
@@ -485,8 +489,11 @@ where
         client_identity: &str,
         oprf_key: &Scalar,
     ) -> Result<CredentialResponse> {
-        let evaluated_element =
-            oprf::evaluate(&request.blinded_element, client_identity.as_bytes(), oprf_key);
+        let evaluated_element = oprf::evaluate(
+            &request.blinded_element,
+            client_identity.as_bytes(),
+            oprf_key,
+        );
 
         let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
@@ -619,7 +626,6 @@ fn create_cleartext_credentials(
         client_identity: Vec::from(client_id),
     }
 }
-
 
 fn construct_auth_tag<P: Payload>(
     auth_key: &[u8],
