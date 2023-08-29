@@ -3,6 +3,7 @@ use elliptic_curve::subtle::ConstantTimeEq;
 use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
 use typenum::Unsigned;
+use zeroize::ZeroizeOnDrop;
 
 pub type Stretch = dyn Fn(&[u8]) -> Result<Digest>;
 
@@ -11,9 +12,8 @@ use crate::{
     error::{InternalError, ProtocolError},
     keypair::{KeyPair, PublicKey, SecretKey},
     messages::{
-        AuthRequest, AuthResponse, CleartextCredentials, CredentialRequest, CredentialResponse,
-        Envelope, KeyExchange1, KeyExchange2, KeyExchange3, RegistrationRecord,
-        RegistrationRequest, RegistrationResponse,
+        AuthRequest, AuthResponse, CredentialRequest, CredentialResponse, Envelope, KeyExchange1,
+        KeyExchange2, KeyExchange3, RegistrationRecord, RegistrationRequest, RegistrationResponse,
     },
     oprf,
     payload::Payload,
@@ -130,7 +130,7 @@ where
         let registration_record = RegistrationRecord {
             envelope: Envelope { nonce, auth_tag },
             masking_key,
-            client_public_key: client_keypair.public_key,
+            client_public_key: client_keypair.public_key.clone(),
             payload,
         };
 
@@ -220,14 +220,14 @@ where
             primitives::derive_keypair(&client_keyshare_seed, STR_DERIVE_DIFFIE_HELLMAN)?;
         let auth_request = AuthRequest {
             client_nonce,
-            client_public_keyshare: client_keypair.public_key,
+            client_public_keyshare: client_keypair.public_key.clone(),
         };
         let ke1 = KeyExchange1 {
             credential_request,
             auth_request,
         };
 
-        self.client_secret = Some(client_keypair.secret_key);
+        self.client_secret = Some(client_keypair.secret_key.clone());
         self.ke1_serialized = Some(ke1.serialize());
 
         Ok(ke1)
@@ -335,7 +335,11 @@ where
             construct_auth_tag(&auth_key, &cleartext_credentials, &envelope.nonce, payload)?;
 
         if bool::from(expected_tag.ct_eq(&envelope.auth_tag)) {
-            Ok((client_keypair.secret_key, cleartext_credentials, export_key))
+            Ok((
+                client_keypair.secret_key.clone(),
+                cleartext_credentials,
+                export_key,
+            ))
         } else {
             Err(ProtocolError::EnvelopeRecoveryError.into())
         }
@@ -564,7 +568,7 @@ where
         let auth_response = AuthResponse {
             server_nonce,
             server_mac,
-            server_public_keyshare: server_keypair.public_key,
+            server_public_keyshare: server_keypair.public_key.clone(),
         };
 
         Ok((auth_response, session_key, expected_client_mac))
@@ -640,4 +644,15 @@ fn construct_auth_tag<P: Payload>(
     hmac.update(&cleartext_credentials.client_identity);
     hmac.update(&payload.serialize()?);
     Ok(hmac.finalize().into_bytes())
+}
+
+////////////////////////
+//// Helper Structs ////
+////////////////////////
+
+#[derive(ZeroizeOnDrop)]
+struct CleartextCredentials {
+    server_public_key: PublicKeyBytes,
+    server_identity: Vec<u8>,
+    client_identity: Vec<u8>,
 }

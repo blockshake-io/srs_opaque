@@ -1,10 +1,11 @@
 use blstrs::{Compress, G2Affine, Gt};
 use typenum::Sum;
+use zeroize::ZeroizeOnDrop;
 
 use crate::{
     ciphersuite::{
         AuthCode, Bytes, Digest, LenCredentialResponse, LenGt, LenKePublicKey, LenMaskedResponse,
-        LenNonce, Nonce, PublicKeyBytes,
+        LenNonce, Nonce,
     },
     error::InternalError,
     keypair::PublicKey,
@@ -12,24 +13,7 @@ use crate::{
     Result,
 };
 
-pub struct CleartextCredentials {
-    pub server_public_key: PublicKeyBytes,
-    pub server_identity: Vec<u8>,
-    pub client_identity: Vec<u8>,
-}
-
-impl CleartextCredentials {
-    pub fn serialize(&self) -> Vec<u8> {
-        let mut buf: Vec<u8> = Vec::with_capacity(
-            self.server_public_key.len() + self.server_identity.len() + self.client_identity.len(),
-        );
-        buf.extend(self.server_public_key);
-        buf.extend(&self.server_identity[..]);
-        buf.extend(&self.client_identity[..]);
-        buf
-    }
-}
-
+#[derive(ZeroizeOnDrop)]
 pub struct Envelope {
     pub nonce: Nonce,
     pub auth_tag: AuthCode,
@@ -55,6 +39,7 @@ impl Envelope {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct RegistrationRecord<P: Payload> {
     pub envelope: Envelope,
     pub masking_key: Digest,
@@ -62,17 +47,23 @@ pub struct RegistrationRecord<P: Payload> {
     pub payload: P,
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct RegistrationRequest {
+    #[zeroize(skip)]
     pub blinded_element: G2Affine,
     pub client_identity: String,
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct RegistrationResponse {
+    #[zeroize(skip)]
     pub evaluated_element: Gt,
     pub server_public_key: PublicKey,
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct CredentialRequest {
+    #[zeroize(skip)]
     pub blinded_element: G2Affine,
 }
 
@@ -82,6 +73,7 @@ impl CredentialRequest {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct AuthRequest {
     pub client_nonce: Nonce,
     pub client_public_keyshare: PublicKey,
@@ -98,6 +90,7 @@ impl AuthRequest {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct KeyExchange1 {
     pub credential_request: CredentialRequest,
     pub auth_request: AuthRequest,
@@ -114,7 +107,9 @@ impl KeyExchange1 {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct CredentialResponse {
+    #[zeroize(skip)]
     pub evaluated_element: Gt,
     pub masking_nonce: Nonce,
     pub masked_response: Bytes<LenMaskedResponse>,
@@ -131,18 +126,21 @@ impl CredentialResponse {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct AuthResponse {
     pub server_nonce: Nonce,
     pub server_public_keyshare: PublicKey,
     pub server_mac: AuthCode,
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct KeyExchange2<P: Payload> {
     pub credential_response: CredentialResponse,
     pub auth_response: AuthResponse,
     pub payload: P,
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct KeyExchange3 {
     pub client_mac: AuthCode,
 }

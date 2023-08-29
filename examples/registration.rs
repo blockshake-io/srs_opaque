@@ -10,8 +10,9 @@ use srs_opaque::{
     Result,
 };
 use typenum::{U20, U4, U8};
+use zeroize::ZeroizeOnDrop;
 
-#[derive(Clone)]
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct KsfParams {
     m_cost: u32,
     t_cost: u32,

@@ -1,11 +1,12 @@
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar, RistrettoPoint};
+use zeroize::ZeroizeOnDrop;
 
 use crate::{
     ciphersuite::{PublicKeyBytes, SecretKeyBytes},
     error::{Error, InternalError},
 };
 
-#[derive(Clone)]
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {
@@ -23,6 +24,7 @@ impl PublicKey {
     }
 }
 
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct SecretKey(pub Scalar);
 
 impl SecretKey {
@@ -31,6 +33,7 @@ impl SecretKey {
     }
 }
 
+#[derive(ZeroizeOnDrop)]
 pub struct KeyPair {
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
