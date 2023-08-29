@@ -15,9 +15,9 @@ impl PublicKey {
     }
 
     pub fn deserialize(buf: &[u8]) -> Result<PublicKey, Error> {
-        let foo = CompressedRistretto::from_slice(&buf[..])
+        let res = CompressedRistretto::from_slice(&buf[..])
             .map_err(|_| InternalError::DeserializeError)?;
-        match foo.decompress() {
+        match res.decompress() {
             Some(pk) => Ok(PublicKey(pk)),
             None => Err(InternalError::DeserializeError.into()),
         }

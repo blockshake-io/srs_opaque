@@ -1,5 +1,5 @@
 use generic_array::GenericArray;
-use typenum::{Sum, U288, U32, U64};
+use typenum::{Sum, U288, U32, U64, U96};
 
 // provides the digest function on Hash
 pub use digest::Digest as _;
@@ -27,8 +27,12 @@ pub type LenPrk = LenHash;
 /// length of a compressed element in BLS12-381's output curve
 pub type LenGt = U288;
 
+pub type LenEnvelope = Sum<LenMac, LenNonce>;
 pub type LenMaskedResponse = Sum<LenKePublicKey, Sum<LenNonce, LenMac>>;
 pub type LenCredentialResponse = Sum<LenGt, Sum<LenNonce, LenMaskedResponse>>;
+pub type LenCredentialRequest = U96;
+pub type LenAuthRequest = Sum<LenNonce, LenKePublicKey>;
+pub type LenKeyExchange1 = Sum<LenCredentialRequest, LenAuthRequest>;
 
 pub type Digest = GenericArray<u8, LenHash>;
 pub type Seed = GenericArray<u8, LenSeed>;

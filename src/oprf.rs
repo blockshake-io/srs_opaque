@@ -39,8 +39,8 @@ pub fn evaluate(blinded_element: &G2Affine, public_input: &[u8], oprf_key: &Scal
 
 pub fn finalize(input: &[u8], evaluated_element: &Gt, blinding_key: &Scalar) -> Result<Digest> {
     let y = evaluated_element * primitives::invert_scalar(blinding_key)?;
-    let mut serialized_element = Vec::new();
-    y.write_compressed(&mut serialized_element)
+    let mut serialized_element = Bytes::<LenGt>::default();
+    y.write_compressed(&mut serialized_element[..])
         .map_err(|_| InternalError::Custom("cannot serialize element"))?;
 
     Ok(Hash::new()

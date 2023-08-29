@@ -183,7 +183,7 @@ where
     password: &'a [u8],
     blinding_key: Option<Scalar>,
     client_secret: Option<SecretKey>,
-    ke1_serialized: Option<[u8; 160]>,
+    ke1_serialized: Option<Bytes<LenKeyExchange1>>,
     rng: Rng,
 }
 
@@ -285,7 +285,6 @@ where
             *x1 ^= x2;
         }
 
-        // TODO: shhould we move serialization/deserialization into a new type & function
         let len_pk = LenKePublicKey::to_usize();
         let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk])?;
         let envelope = Envelope::deserialize(&xor_pad[len_pk..])?;

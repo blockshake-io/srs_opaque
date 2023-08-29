@@ -1,11 +1,12 @@
 use blstrs::{Compress, G2Affine, Gt};
-use typenum::Sum;
+use generic_array::sequence::Concat;
+use typenum::Unsigned;
 use zeroize::ZeroizeOnDrop;
 
 use crate::{
     ciphersuite::{
-        AuthCode, Bytes, Digest, LenCredentialResponse, LenGt, LenKePublicKey, LenMaskedResponse,
-        LenNonce, Nonce,
+        AuthCode, Bytes, Digest, LenAuthRequest, LenCredentialRequest, LenCredentialResponse,
+        LenEnvelope, LenGt, LenKeyExchange1, LenMaskedResponse, LenNonce, Nonce,
     },
     error::InternalError,
     keypair::PublicKey,
@@ -20,21 +21,16 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    pub fn serialize(&self) -> [u8; 96] {
-        let mut buf = [0; 96];
-        buf[0..32].copy_from_slice(&self.nonce);
-        buf[32..96].copy_from_slice(&self.auth_tag);
-        buf
+    pub fn serialize(&self) -> Bytes<LenEnvelope> {
+        self.nonce.concat(self.auth_tag)
     }
 
     pub fn deserialize(buf: &[u8]) -> Result<Envelope> {
-        if buf.len() != 96 {
+        if buf.len() != LenEnvelope::to_usize() {
             return Err(InternalError::DeserializeError.into());
         }
-        let mut nonce = Nonce::default();
-        let mut auth_tag = AuthCode::default();
-        nonce.copy_from_slice(&buf[0..32]);
-        auth_tag.copy_from_slice(&buf[32..96]);
+        let nonce = Nonce::clone_from_slice(&buf[0..LenNonce::to_usize()]);
+        let auth_tag = AuthCode::clone_from_slice(&buf[LenNonce::to_usize()..]);
         Ok(Envelope { nonce, auth_tag })
     }
 }
@@ -68,8 +64,9 @@ pub struct CredentialRequest {
 }
 
 impl CredentialRequest {
-    fn serialize(&self) -> [u8; 96] {
-        self.blinded_element.to_compressed()
+    fn serialize(&self) -> Bytes<LenCredentialRequest> {
+        let buf = self.blinded_element.to_compressed();
+        Bytes::clone_from_slice(&buf)
     }
 }
 
@@ -79,14 +76,10 @@ pub struct AuthRequest {
     pub client_public_keyshare: PublicKey,
 }
 
-pub type AuthRequestLen = Sum<LenNonce, LenKePublicKey>;
 impl AuthRequest {
-    fn serialize(&self) -> Bytes<AuthRequestLen> {
-        let mut buf = Bytes::<AuthRequestLen>::default();
-        buf[0..32].copy_from_slice(&self.client_nonce[..]);
-        let public_key = self.client_public_keyshare.0.compress().to_bytes();
-        buf[32..64].copy_from_slice(&public_key[..]);
-        buf
+    fn serialize(&self) -> Bytes<LenAuthRequest> {
+        self.client_nonce
+            .concat(self.client_public_keyshare.serialize())
     }
 }
 
@@ -97,13 +90,10 @@ pub struct KeyExchange1 {
 }
 
 impl KeyExchange1 {
-    pub fn serialize(&self) -> [u8; 160] {
-        let mut buf = [0; 160];
-        let part1 = self.credential_request.serialize();
-        let part2 = self.auth_request.serialize();
-        buf[0..96].copy_from_slice(&part1[..]);
-        buf[96..160].copy_from_slice(&part2[..]);
-        buf
+    pub fn serialize(&self) -> Bytes<LenKeyExchange1> {
+        let credential_request = self.credential_request.serialize();
+        let auth_request = self.auth_request.serialize();
+        credential_request.concat(auth_request)
     }
 }
 
@@ -121,7 +111,6 @@ impl CredentialResponse {
         self.evaluated_element
             .write_compressed(&mut gt[..])
             .map_err(|_| InternalError::SerializeError)?;
-        use generic_array::sequence::Concat;
         Ok(gt.concat(self.masking_nonce).concat(self.masked_response))
     }
 }
