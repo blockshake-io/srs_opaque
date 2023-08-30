@@ -98,7 +98,7 @@ where
     }
 
     /// Corresponds to Store
-    pub fn store<R: CryptoRng + RngCore>(
+    fn store<R: CryptoRng + RngCore>(
         rng: &mut R,
         randomized_pwd: &Kdf,
         server_public_key: &PublicKey,
