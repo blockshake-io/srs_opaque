@@ -3,7 +3,8 @@ use zeroize::ZeroizeOnDrop;
 
 use crate::{
     ciphersuite::{PublicKeyBytes, SecretKeyBytes},
-    error::{Error, InternalError},
+    error::InternalError,
+    Result,
 };
 
 #[derive(Clone, ZeroizeOnDrop)]
@@ -14,7 +15,7 @@ impl PublicKey {
         self.0.compress().to_bytes().into()
     }
 
-    pub fn deserialize(buf: &[u8]) -> Result<PublicKey, Error> {
+    pub fn deserialize(buf: &[u8]) -> Result<PublicKey> {
         let res = CompressedRistretto::from_slice(&buf[..])
             .map_err(|_| InternalError::DeserializeError)?;
         match res.decompress() {
