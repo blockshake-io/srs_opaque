@@ -83,8 +83,8 @@ where
     {
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
-        let stretched_oprf_output = stretch(&oprf_output)?;
-        let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
+        let stretched_oprf_output = stretch(&oprf_output[..])?;
+        let randomized_pwd = primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
 
         let mut client_rng = rand::thread_rng();
         Self::store(
@@ -274,8 +274,8 @@ where
         S: Fn(&[u8]) -> Result<Digest>,
     {
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
-        let stretched_oprf_output = stretch(&oprf_output)?;
-        let randomized_pwd = primitives::extract_kdf(&[&oprf_output, &stretched_oprf_output])?;
+        let stretched_oprf_output = stretch(&oprf_output[..])?;
+        let randomized_pwd = primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
         let mut xor_pad: Bytes<LenMaskedResponse> =
@@ -286,7 +286,9 @@ where
         }
 
         let len_pk = LenKePublicKey::to_usize();
-        let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk])?;
+        let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk]).map_err(|_|
+            ProtocolError::EnvelopeRecoveryError
+        )?;
         let envelope = Envelope::deserialize(&xor_pad[len_pk..])?;
 
         let (client_private_key, cleartext_credentials, export_key) = Self::recover(
@@ -572,6 +574,14 @@ where
 
         Ok((auth_response, session_key, expected_client_mac))
     }
+
+    pub fn session_key(&self) -> &Option<AuthCode> {
+        &self.session_key
+    }
+
+    pub fn expected_client_mac(&self) -> &Option<AuthCode> {
+        &self.expected_client_mac
+    }
 }
 
 fn derive_keys(ikm: &[&[u8]], hashed_preamble: &[u8]) -> Result<(AuthCode, AuthCode, AuthCode)> {
@@ -621,8 +631,8 @@ fn create_cleartext_credentials(
 ) -> CleartextCredentials {
     let client_public_key = client_public_key.serialize();
     let server_public_key = server_public_key.serialize();
-    let client_id = ids.client.unwrap_or(&client_public_key);
-    let server_id = ids.server.unwrap_or(&server_public_key);
+    let client_id = ids.client.unwrap_or(&client_public_key[..]);
+    let server_id = ids.server.unwrap_or(&server_public_key[..]);
     CleartextCredentials {
         server_public_key,
         server_identity: Vec::from(server_id),

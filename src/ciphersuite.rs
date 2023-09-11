@@ -11,9 +11,9 @@ pub type Kdf = hkdf::Hkdf<Hash>;
 pub type Mac = hmac::Hmac<Hash>;
 
 /// length of a hash; corresponds to Nh in OPAQUE standard
-pub type LenHash = U64;
+pub type LenDigest = U64;
 /// length of a MAC; corresponds to Nm in OPAQUE standard
-pub type LenMac = LenHash;
+pub type LenMac = LenDigest;
 /// length of a seed; corresponds to Nseed in OPAQUE standard
 pub type LenSeed = U32;
 /// length of a nonce; corresponds to Nn in OPAQUE standard
@@ -23,7 +23,7 @@ pub type LenKePublicKey = U32;
 /// length of a secret key in OPAQUE's key exchange
 pub type LenKeSecretKey = U32;
 /// length of a pseudo-random key obtained from Extract
-pub type LenPrk = LenHash;
+pub type LenPrk = LenDigest;
 /// length of a compressed element in BLS12-381's output curve
 pub type LenGt = U288;
 
@@ -34,7 +34,7 @@ pub type LenCredentialRequest = U96;
 pub type LenAuthRequest = Sum<LenNonce, LenKePublicKey>;
 pub type LenKeyExchange1 = Sum<LenCredentialRequest, LenAuthRequest>;
 
-pub type Digest = GenericArray<u8, LenHash>;
+pub type Digest = GenericArray<u8, LenDigest>;
 pub type Seed = GenericArray<u8, LenSeed>;
 pub type Nonce = GenericArray<u8, LenNonce>;
 pub type AuthCode = GenericArray<u8, LenMac>;

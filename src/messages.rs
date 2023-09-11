@@ -14,7 +14,7 @@ use crate::{
     Result,
 };
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct Envelope {
     pub nonce: Nonce,
     pub auth_tag: AuthCode,
@@ -39,7 +39,9 @@ impl Envelope {
 pub struct RegistrationRecord<P: Payload> {
     pub envelope: Envelope,
     pub masking_key: Digest,
+    #[zeroize(skip)]
     pub client_public_key: PublicKey,
+    #[zeroize(skip)]
     pub payload: P,
 }
 
@@ -50,16 +52,12 @@ pub struct RegistrationRequest {
     pub client_identity: String,
 }
 
-#[derive(ZeroizeOnDrop)]
 pub struct RegistrationResponse {
-    #[zeroize(skip)]
     pub evaluated_element: Gt,
     pub server_public_key: PublicKey,
 }
 
-#[derive(ZeroizeOnDrop)]
 pub struct CredentialRequest {
-    #[zeroize(skip)]
     pub blinded_element: G2Affine,
 }
 
@@ -73,6 +71,7 @@ impl CredentialRequest {
 #[derive(ZeroizeOnDrop)]
 pub struct AuthRequest {
     pub client_nonce: Nonce,
+    #[zeroize(skip)]
     pub client_public_keyshare: PublicKey,
 }
 
@@ -83,7 +82,6 @@ impl AuthRequest {
     }
 }
 
-#[derive(ZeroizeOnDrop)]
 pub struct KeyExchange1 {
     pub credential_request: CredentialRequest,
     pub auth_request: AuthRequest,
@@ -118,6 +116,7 @@ impl CredentialResponse {
 #[derive(ZeroizeOnDrop)]
 pub struct AuthResponse {
     pub server_nonce: Nonce,
+    #[zeroize(skip)]
     pub server_public_keyshare: PublicKey,
     pub server_mac: AuthCode,
 }
@@ -126,6 +125,7 @@ pub struct AuthResponse {
 pub struct KeyExchange2<P: Payload> {
     pub credential_response: CredentialResponse,
     pub auth_response: AuthResponse,
+    #[zeroize(skip)]
     pub payload: P,
 }
 

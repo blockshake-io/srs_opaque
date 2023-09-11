@@ -7,7 +7,7 @@ use crate::{
     Result,
 };
 
-#[derive(Clone, ZeroizeOnDrop)]
+#[derive(Debug, Copy, Clone)]
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {
@@ -25,7 +25,7 @@ impl PublicKey {
     }
 }
 
-#[derive(Clone, ZeroizeOnDrop)]
+#[derive(Debug, Clone, ZeroizeOnDrop)]
 pub struct SecretKey(pub Scalar);
 
 impl SecretKey {
@@ -36,6 +36,7 @@ impl SecretKey {
 
 #[derive(ZeroizeOnDrop)]
 pub struct KeyPair {
+    #[zeroize(skip)]
     pub public_key: PublicKey,
     pub secret_key: SecretKey,
 }
