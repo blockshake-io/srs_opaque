@@ -84,7 +84,8 @@ where
         let blinding_key = self.blinding_key.as_ref().expect("uninitialized");
         let oprf_output = oprf::finalize(self.password, &response.evaluated_element, blinding_key)?;
         let stretched_oprf_output = stretch(&oprf_output[..])?;
-        let randomized_pwd = primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
+        let randomized_pwd =
+            primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
 
         let mut client_rng = rand::thread_rng();
         Self::store(
@@ -275,7 +276,8 @@ where
     {
         let oprf_output = oprf::finalize(password, &response.evaluated_element, blinding_key)?;
         let stretched_oprf_output = stretch(&oprf_output[..])?;
-        let randomized_pwd = primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
+        let randomized_pwd =
+            primitives::extract_kdf(&[&oprf_output[..], &stretched_oprf_output[..]])?;
 
         let masking_key: Digest = primitives::expand(&randomized_pwd, &[STR_MASKING_KEY])?;
         let mut xor_pad: Bytes<LenMaskedResponse> =
@@ -286,9 +288,8 @@ where
         }
 
         let len_pk = LenKePublicKey::to_usize();
-        let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk]).map_err(|_|
-            ProtocolError::EnvelopeRecoveryError
-        )?;
+        let server_public_key = PublicKey::deserialize(&xor_pad[0..len_pk])
+            .map_err(|_| ProtocolError::EnvelopeRecoveryError)?;
         let envelope = Envelope::deserialize(&xor_pad[len_pk..])?;
 
         let (client_private_key, cleartext_credentials, export_key) = Self::recover(
@@ -393,6 +394,21 @@ where
     }
 }
 
+pub struct ServerLoginState {
+    pub session_key: AuthCode,
+    pub expected_client_mac: AuthCode,
+}
+
+impl ServerLoginState {
+    pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode> {
+        if bool::from(ke3.client_mac.ct_eq(&self.expected_client_mac)) {
+            Ok(self.session_key)
+        } else {
+            Err(ProtocolError::ServerAuthenticationError.into())
+        }
+    }
+}
+
 pub struct ServerLoginFlow<'a, P, Rng>
 where
     P: Payload,
@@ -405,8 +421,6 @@ where
     oprf_key: &'a Scalar,
     ke1: &'a KeyExchange1,
     client_identity: &'a str,
-    session_key: Option<AuthCode>,
-    expected_client_mac: Option<AuthCode>,
     rng: Rng,
 }
 
@@ -433,14 +447,12 @@ where
             oprf_key,
             ke1,
             client_identity,
-            session_key: None,
-            expected_client_mac: None,
             rng,
         }
     }
 
     /// Corresponds to GenerateKE2
-    pub fn start(&mut self) -> Result<KeyExchange2<P>> {
+    pub fn start(&mut self) -> Result<(ServerLoginState, KeyExchange2<P>)> {
         let credential_response = Self::create_credential_response(
             &mut self.rng,
             &self.ke1.credential_request,
@@ -469,24 +481,22 @@ where
             &credential_response,
         )?;
 
-        self.session_key = Some(session_key);
-        self.expected_client_mac = Some(expected_client_mac);
-
-        Ok(KeyExchange2 {
+        let state = ServerLoginState {
+            session_key,
+            expected_client_mac,
+        };
+        let ke2 = KeyExchange2 {
             credential_response,
             auth_response,
             payload: self.record.payload.clone(),
-        })
+        };
+
+        Ok((state, ke2))
     }
 
     /// Corresponds to ServerFinish
-    pub fn finish(&self, ke3: &KeyExchange3) -> Result<AuthCode> {
-        let expected_client_mac = self.expected_client_mac.expect("uninitialized");
-        if bool::from(ke3.client_mac.ct_eq(&expected_client_mac)) {
-            Ok(self.session_key.expect("uninitialized"))
-        } else {
-            Err(ProtocolError::ServerAuthenticationError.into())
-        }
+    pub fn finish(&self, state: &ServerLoginState, ke3: &KeyExchange3) -> Result<AuthCode> {
+        state.finish(ke3)
     }
 
     fn create_credential_response<R: CryptoRng + RngCore>(
@@ -573,14 +583,6 @@ where
         };
 
         Ok((auth_response, session_key, expected_client_mac))
-    }
-
-    pub fn session_key(&self) -> &Option<AuthCode> {
-        &self.session_key
-    }
-
-    pub fn expected_client_mac(&self) -> &Option<AuthCode> {
-        &self.expected_client_mac
     }
 }
 

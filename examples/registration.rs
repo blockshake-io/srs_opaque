@@ -150,7 +150,7 @@ fn main() -> Result<()> {
         username,
         rand::thread_rng(),
     );
-    let ke2 = server_flow.start()?;
+    let (state, ke2) = server_flow.start()?;
 
     // STEP 3: finalize on client
     let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ke2.payload);
@@ -158,7 +158,7 @@ fn main() -> Result<()> {
         client_flow.finish(Some(server_identity), &ke2, ksf_stretch)?;
 
     // STEP 4: finalize on server
-    let server_session_key = server_flow.finish(&ke3)?;
+    let server_session_key = server_flow.finish(&state, &ke3)?;
 
     println!("client_session_key: {:?}", client_session_key);
     println!("server_session_key: {:?}", server_session_key);
