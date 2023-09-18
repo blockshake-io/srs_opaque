@@ -55,7 +55,6 @@ pub struct RegistrationRequest {
     #[zeroize(skip)]
     #[serde(with = "serialization::b64_g2")]
     pub blinded_element: G2Affine,
-    #[serde(rename = "username")]
     pub client_identity: String,
 }
 
