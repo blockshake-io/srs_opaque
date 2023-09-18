@@ -1,5 +1,6 @@
 use blstrs::{Compress, G2Affine, Gt};
 use generic_array::sequence::Concat;
+use serde::{Serialize, Deserialize};
 use typenum::Unsigned;
 use zeroize::ZeroizeOnDrop;
 
@@ -12,9 +13,10 @@ use crate::{
     keypair::PublicKey,
     payload::Payload,
     Result,
+    serialization,
 };
 
-#[derive(Clone, ZeroizeOnDrop)]
+#[derive(Debug, Clone, ZeroizeOnDrop)]
 pub struct Envelope {
     pub nonce: Nonce,
     pub auth_tag: AuthCode,
@@ -35,29 +37,39 @@ impl Envelope {
     }
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct RegistrationRecord<P: Payload> {
+    #[serde(with = "serialization::b64_envelope")]
     pub envelope: Envelope,
+    #[serde(with = "serialization::b64_digest")]
     pub masking_key: Digest,
     #[zeroize(skip)]
+    #[serde(with = "serialization::b64_public_key")]
     pub client_public_key: PublicKey,
     #[zeroize(skip)]
     pub payload: P,
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct RegistrationRequest {
     #[zeroize(skip)]
+    #[serde(with = "serialization::b64_g2")]
     pub blinded_element: G2Affine,
+    #[serde(rename = "username")]
     pub client_identity: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RegistrationResponse {
+    #[serde(with = "serialization::b64_gt")]
     pub evaluated_element: Gt,
+    #[serde(with = "serialization::b64_public_key")]
     pub server_public_key: PublicKey,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialRequest {
+    #[serde(with = "serialization::b64_g2")]
     pub blinded_element: G2Affine,
 }
 
@@ -68,10 +80,12 @@ impl CredentialRequest {
     }
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct AuthRequest {
+    #[serde(with = "serialization::b64_nonce")]
     pub client_nonce: Nonce,
     #[zeroize(skip)]
+    #[serde(with = "serialization::b64_public_key")]
     pub client_public_keyshare: PublicKey,
 }
 
@@ -82,6 +96,7 @@ impl AuthRequest {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct KeyExchange1 {
     pub credential_request: CredentialRequest,
     pub auth_request: AuthRequest,
@@ -95,11 +110,13 @@ impl KeyExchange1 {
     }
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct CredentialResponse {
     #[zeroize(skip)]
     pub evaluated_element: Gt,
+    #[serde(with = "serialization::b64_nonce")]
     pub masking_nonce: Nonce,
+    #[serde(with = "serialization::b64_masked_response")]
     pub masked_response: Bytes<LenMaskedResponse>,
 }
 
@@ -113,15 +130,18 @@ impl CredentialResponse {
     }
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct AuthResponse {
+    #[serde(with = "serialization::b64_nonce")]
     pub server_nonce: Nonce,
     #[zeroize(skip)]
+    #[serde(with = "serialization::b64_public_key")]
     pub server_public_keyshare: PublicKey,
+    #[serde(with = "serialization::b64_auth_code")]
     pub server_mac: AuthCode,
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct KeyExchange2<P: Payload> {
     pub credential_response: CredentialResponse,
     pub auth_response: AuthResponse,
@@ -129,7 +149,8 @@ pub struct KeyExchange2<P: Payload> {
     pub payload: P,
 }
 
-#[derive(ZeroizeOnDrop)]
+#[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
 pub struct KeyExchange3 {
+    #[serde(with = "serialization::b64_auth_code")]
     pub client_mac: AuthCode,
 }

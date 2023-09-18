@@ -6,9 +6,9 @@ use crate::ciphersuite::Bytes;
 pub trait Payload: Clone {
     type Len: ArrayLength<u8>;
 
-    fn serialize(&self) -> Result<Bytes<Self::Len>>;
+    fn to_bytes(&self) -> Result<Bytes<Self::Len>>;
 
-    fn deserialize(buf: &Bytes<Self::Len>) -> Result<Self>
+    fn from_bytes(buf: &Bytes<Self::Len>) -> Result<Self>
     where
         Self: Sized;
 }

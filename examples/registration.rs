@@ -23,7 +23,7 @@ pub struct KsfParams {
 impl Payload for KsfParams {
     type Len = U20;
 
-    fn serialize(&self) -> Result<Bytes<Self::Len>> {
+    fn to_bytes(&self) -> Result<Bytes<Self::Len>> {
         use generic_array::sequence::Concat;
         let mut m_cost = Bytes::<U4>::default();
         let mut t_cost = Bytes::<U4>::default();
@@ -36,7 +36,7 @@ impl Payload for KsfParams {
         Ok(m_cost.concat(t_cost).concat(p_cost).concat(output_len))
     }
 
-    fn deserialize(buf: &Bytes<Self::Len>) -> Result<Self>
+    fn from_bytes(buf: &Bytes<Self::Len>) -> Result<Self>
     where
         Self: Sized,
     {

@@ -653,7 +653,7 @@ fn construct_auth_tag<P: Payload>(
     hmac.update(&cleartext_credentials.server_public_key);
     hmac.update(&cleartext_credentials.server_identity);
     hmac.update(&cleartext_credentials.client_identity);
-    hmac.update(&payload.serialize()?);
+    hmac.update(&payload.to_bytes()?);
     Ok(hmac.finalize().into_bytes())
 }
 
