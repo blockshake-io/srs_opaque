@@ -108,7 +108,7 @@ fn main() -> Result<()> {
 
     // STEP 2: proceed registration on server, evaluate OPRF
     let server_flow = ServerRegistrationFlow::new(&server_keypair.public_key);
-    let evaluated_element = oprf::evaluate(
+    let evaluated_element = oprf::blind_evaluate(
         &registration_request.blinded_element,
         registration_request.client_identity.as_bytes(),
         &server_oprf_key,
@@ -155,7 +155,7 @@ fn main() -> Result<()> {
         username,
         rand::thread_rng(),
     );
-    let evaluated_element = oprf::evaluate(
+    let evaluated_element = oprf::blind_evaluate(
         &ke1.credential_request.blinded_element,
         username.as_bytes(),
         &server_oprf_key,

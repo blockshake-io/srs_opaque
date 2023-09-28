@@ -19,6 +19,8 @@ pub enum InternalError {
     SerializeError,
     /// Could not de-serialize an object
     DeserializeError,
+    /// Could not process input
+    InvalidInputError,
     /// Could not perform SSS
     ShamirSharingError,
 }
@@ -49,6 +51,7 @@ impl std::fmt::Display for InternalError {
             InternalError::SerializeError => write!(f, "SerializeError"),
             InternalError::DeserializeError => write!(f, "DeserializeError"),
             InternalError::ShamirSharingError => write!(f, "ShamirSharingError"),
+            InternalError::InvalidInputError => write!(f, "InvalidInputError"),
         }
     }
 }
