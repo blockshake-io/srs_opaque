@@ -19,7 +19,10 @@ pub enum InternalError {
     SerializeError,
     /// Could not de-serialize an object
     DeserializeError,
+    /// Could not perform SSS
+    ShamirSharingError,
 }
+
 #[derive(Debug)]
 pub enum ProtocolError {
     /// Could not recover envelope
@@ -45,6 +48,7 @@ impl std::fmt::Display for InternalError {
             InternalError::HashError => write!(f, "HashError"),
             InternalError::SerializeError => write!(f, "SerializeError"),
             InternalError::DeserializeError => write!(f, "DeserializeError"),
+            InternalError::ShamirSharingError => write!(f, "ShamirSharingError"),
         }
     }
 }

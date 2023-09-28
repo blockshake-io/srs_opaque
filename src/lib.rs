@@ -7,5 +7,6 @@ pub mod oprf;
 pub mod payload;
 pub mod primitives;
 pub mod serialization;
+pub mod shamir;
 
 pub type Result<T> = std::result::Result<T, crate::error::Error>;

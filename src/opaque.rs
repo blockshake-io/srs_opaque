@@ -1,4 +1,4 @@
-use blstrs::Scalar;
+use blstrs::{Gt, Scalar};
 use elliptic_curve::subtle::ConstantTimeEq;
 use hkdf::HkdfExtract;
 use rand::{CryptoRng, RngCore};
@@ -140,28 +140,16 @@ where
 }
 
 pub struct ServerRegistrationFlow<'a> {
-    oprf_key: &'a Scalar,
     server_public_key: &'a PublicKey,
 }
 
 impl<'a> ServerRegistrationFlow<'a> {
-    pub fn new(
-        oprf_key: &'a Scalar,
-        server_public_key: &'a PublicKey,
-    ) -> ServerRegistrationFlow<'a> {
-        ServerRegistrationFlow {
-            oprf_key,
-            server_public_key,
-        }
+    pub fn new(server_public_key: &'a PublicKey) -> ServerRegistrationFlow<'a> {
+        ServerRegistrationFlow { server_public_key }
     }
 
     /// Corresponds to CreateRegistrationResponse
-    pub fn start(&self, request: &RegistrationRequest) -> RegistrationResponse {
-        let evaluated_element = oprf::evaluate(
-            &request.blinded_element,
-            request.client_identity.as_bytes(),
-            self.oprf_key,
-        );
+    pub fn start(&self, evaluated_element: Gt) -> RegistrationResponse {
         RegistrationResponse {
             evaluated_element,
             server_public_key: self.server_public_key.clone(),
@@ -418,7 +406,6 @@ where
     server_identity: Option<&'a str>,
     ke_keypair: &'a KeyPair,
     record: &'a RegistrationRecord<P>,
-    oprf_key: &'a Scalar,
     ke1: &'a KeyExchange1,
     client_identity: &'a str,
     rng: Rng,
@@ -434,7 +421,6 @@ where
         server_identity: Option<&'a str>,
         ke_keypair: &'a KeyPair,
         record: &'a RegistrationRecord<P>,
-        oprf_key: &'a Scalar,
         ke1: &'a KeyExchange1,
         client_identity: &'a str,
         rng: Rng,
@@ -444,7 +430,6 @@ where
             server_identity,
             ke_keypair,
             record,
-            oprf_key,
             ke1,
             client_identity,
             rng,
@@ -452,14 +437,12 @@ where
     }
 
     /// Corresponds to GenerateKE2
-    pub fn start(&mut self) -> Result<(ServerLoginState, KeyExchange2<P>)> {
+    pub fn start(&mut self, evaluated_element: Gt) -> Result<(ServerLoginState, KeyExchange2<P>)> {
         let credential_response = Self::create_credential_response(
             &mut self.rng,
-            &self.ke1.credential_request,
             self.server_public_key,
             self.record,
-            self.client_identity,
-            self.oprf_key,
+            evaluated_element,
         )?;
 
         let ids = Identifiers {
@@ -501,18 +484,10 @@ where
 
     fn create_credential_response<R: CryptoRng + RngCore>(
         rng: &mut R,
-        request: &CredentialRequest,
         server_public_key: &PublicKey,
         record: &RegistrationRecord<P>,
-        client_identity: &str,
-        oprf_key: &Scalar,
+        evaluated_element: Gt,
     ) -> Result<CredentialResponse> {
-        let evaluated_element = oprf::evaluate(
-            &request.blinded_element,
-            client_identity.as_bytes(),
-            oprf_key,
-        );
-
         let mut masking_nonce = Nonce::default();
         rng.fill_bytes(&mut masking_nonce);
 

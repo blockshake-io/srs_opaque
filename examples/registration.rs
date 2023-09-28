@@ -5,6 +5,7 @@ use srs_opaque::{
     ciphersuite::{Bytes, Digest},
     error::InternalError,
     opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
+    oprf,
     payload::Payload,
     primitives::derive_keypair,
     Result,
@@ -106,8 +107,13 @@ fn main() -> Result<()> {
     let registration_request = client_flow.start();
 
     // STEP 2: proceed registration on server, evaluate OPRF
-    let server_flow = ServerRegistrationFlow::new(&server_oprf_key, &server_keypair.public_key);
-    let registration_response = server_flow.start(&registration_request);
+    let server_flow = ServerRegistrationFlow::new(&server_keypair.public_key);
+    let evaluated_element = oprf::evaluate(
+        &registration_request.blinded_element,
+        registration_request.client_identity.as_bytes(),
+        &server_oprf_key,
+    );
+    let registration_response = server_flow.start(evaluated_element);
 
     // STEP 3: finish registration on client, create registration record
     // that's sent to the server and an export key that's used locally
@@ -145,12 +151,16 @@ fn main() -> Result<()> {
         Some(server_identity),
         &server_keypair,
         &registration_record,
-        &server_oprf_key,
         &ke1,
         username,
         rand::thread_rng(),
     );
-    let (state, ke2) = server_flow.start()?;
+    let evaluated_element = oprf::evaluate(
+        &ke1.credential_request.blinded_element,
+        username.as_bytes(),
+        &server_oprf_key,
+    );
+    let (state, ke2) = server_flow.start(evaluated_element)?;
 
     // STEP 3: finalize on client
     let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ke2.payload);

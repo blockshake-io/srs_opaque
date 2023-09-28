@@ -1,6 +1,6 @@
 use blstrs::{Compress, G2Affine, Gt};
 use generic_array::sequence::Concat;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use typenum::Unsigned;
 use zeroize::ZeroizeOnDrop;
 
@@ -12,8 +12,7 @@ use crate::{
     error::InternalError,
     keypair::PublicKey,
     payload::Payload,
-    Result,
-    serialization,
+    serialization, Result,
 };
 
 #[derive(Debug, Clone, ZeroizeOnDrop)]

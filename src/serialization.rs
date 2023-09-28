@@ -1,19 +1,20 @@
 use base64::Engine;
-use generic_array::{GenericArray, ArrayLength};
+use generic_array::{ArrayLength, GenericArray};
 
-use crate::{
-    Result,
-    ciphersuite::Bytes, error::Error
-};
+use crate::{ciphersuite::Bytes, error::Error, Result};
 
 pub fn b64_decode<Len>(input: &str) -> Result<GenericArray<u8, Len>>
 where
     Len: ArrayLength<u8>,
 {
     let mut buf = Bytes::<Len>::default();
-    let data = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(input).map_err(|_| Error::Internal(crate::error::InternalError::DeserializeError))?;
+    let data = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(input)
+        .map_err(|_| Error::Internal(crate::error::InternalError::DeserializeError))?;
     if data.len() != Len::to_usize() {
-        return Err(Error::Internal(crate::error::InternalError::DeserializeError));
+        return Err(Error::Internal(
+            crate::error::InternalError::DeserializeError,
+        ));
     }
     buf.copy_from_slice(&data[..]);
     Ok(buf)
@@ -22,7 +23,6 @@ where
 pub fn b64_encode(input: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input)
 }
-
 
 pub mod b64_g2 {
     use blstrs::G2Affine;
