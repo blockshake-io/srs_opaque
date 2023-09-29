@@ -214,3 +214,40 @@ pub mod b64_masked_response {
         super::b64_decode(input)
     }
 }
+
+
+pub mod b64_scalar {
+    use blstrs::Scalar;
+    use generic_array::GenericArray;
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    use typenum::U32;
+
+    use super::{b64_encode, b64_decode};
+
+    pub fn serialize<S: Serializer>(v: &Scalar, s: S) -> Result<S::Ok, S::Error> {
+        String::serialize(&encode(v), s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Scalar, D::Error> {
+        decode(&String::deserialize(d)?).map_err(|_| serde::de::Error::custom("Could not parse BLS12-381 scalar"))
+    }
+
+    pub fn encode(input: &Scalar) -> String {
+        b64_encode(&input.to_bytes_be())
+    }
+
+    pub fn decode(input: &str) -> Result<Scalar, crate::error::Error> {
+        let buf: GenericArray<u8, U32> = b64_decode(input)
+            .map_err(|_| crate::error::Error::Internal(crate::error::InternalError::DeserializeError))?;
+        let buf: [u8; 32] = buf.try_into().unwrap();
+        let scalar = Scalar::from_bytes_be(&buf);
+        if bool::from(scalar.is_some()) {
+            Ok(scalar.unwrap())
+        } else {
+            Err(crate::error::Error::Internal(crate::error::InternalError::DeserializeError))
+        }
+    }
+
+}
