@@ -51,10 +51,7 @@ fn evaluate_polynomial(coefficients: &[Scalar], x: &Scalar) -> Scalar {
     result
 }
 
-pub fn generate_secrets(
-    threshold: u64,
-    nr_shares: u64,
-) -> Result<(Scalar, Vec<Scalar>)> {
+pub fn generate_secrets(threshold: u64, nr_shares: u64) -> Result<(Scalar, Vec<Scalar>)> {
     let threshold = threshold as usize;
     let nr_shares = nr_shares as usize;
 
