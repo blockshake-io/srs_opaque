@@ -1,4 +1,3 @@
-// use crate::{util, EvaluatedElement, PoprfError};
 use crate::{
     error::{Error, InternalError},
     serialization, Result,
@@ -42,4 +41,34 @@ pub fn lagrange_interpolation(threshold: u16, parts: &[EvaluatedElement]) -> Res
         let lambda = lagrange_coefficient(x.server_id, &share_indexes[..]);
         acc + (x.evaluated_element * lambda)
     }))
+}
+
+fn evaluate_polynomial(coefficients: &[Scalar], x: &Scalar) -> Scalar {
+    let mut result = Scalar::ZERO;
+    for (i, coeff) in coefficients.iter().enumerate() {
+        result += coeff * x.pow(&[i as u64]);
+    }
+    result
+}
+
+pub fn generate_secrets(
+    threshold: u64,
+    nr_shares: u64,
+) -> Result<(Scalar, Vec<Scalar>)> {
+    let threshold = threshold as usize;
+    let nr_shares = nr_shares as usize;
+
+    let mut coefficients = Vec::<Scalar>::with_capacity(threshold);
+    for _ in 0..threshold {
+        coefficients.push(Scalar::random(rand::thread_rng()));
+    }
+
+    let secrect_key = evaluate_polynomial(&coefficients[..], &Scalar::ZERO);
+    let mut shares: Vec<Scalar> = Vec::with_capacity(nr_shares);
+    for i in 0..nr_shares {
+        let x = Scalar::from((i + 1) as u64);
+        shares.push(evaluate_polynomial(&coefficients[..], &x));
+    }
+
+    Ok((secrect_key, shares))
 }
