@@ -1,4 +1,5 @@
 use curve25519_dalek::{ristretto::CompressedRistretto, scalar::Scalar, RistrettoPoint};
+use rand_core::CryptoRngCore;
 use zeroize::ZeroizeOnDrop;
 
 use crate::{
@@ -11,6 +12,10 @@ use crate::{
 pub struct PublicKey(pub RistrettoPoint);
 
 impl PublicKey {
+    pub fn random<R: CryptoRngCore>(rng: &mut R) -> Self {
+        Self(RistrettoPoint::random(rng))
+    }
+
     pub fn serialize(&self) -> PublicKeyBytes {
         self.0.compress().to_bytes().into()
     }

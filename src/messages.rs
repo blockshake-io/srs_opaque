@@ -1,5 +1,7 @@
 use blstrs::{Compress, G2Affine, Gt};
 use generic_array::sequence::Concat;
+use rand::Rng;
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Serialize};
 use typenum::Unsigned;
 use zeroize::ZeroizeOnDrop;
@@ -22,6 +24,13 @@ pub struct Envelope {
 }
 
 impl Envelope {
+    pub fn zero() -> Self {
+        Self {
+            nonce: Nonce::default(),
+            auth_tag: AuthCode::default(),
+        }
+    }
+
     pub fn serialize(&self) -> Bytes<LenEnvelope> {
         self.nonce.concat(self.auth_tag)
     }
@@ -47,6 +56,19 @@ pub struct RegistrationRecord<P: Payload> {
     pub client_public_key: PublicKey,
     #[zeroize(skip)]
     pub payload: P,
+}
+
+impl<P: Payload> RegistrationRecord<P> {
+    pub fn fake<R: CryptoRngCore>(rng: &mut R, payload: P) -> Self {
+        let mut masking_key = Digest::default();
+        masking_key.fill_with(|| rng.gen());
+        Self {
+            envelope: Envelope::zero(),
+            masking_key,
+            client_public_key: PublicKey::random(rng),
+            payload,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]

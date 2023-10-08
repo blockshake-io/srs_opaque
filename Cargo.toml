@@ -7,13 +7,14 @@ edition = "2021"
 
 [dependencies]
 blstrs = { version = "0.7.0", features = ["serde"] }
+rand_core = "0.6.4"
 rand = "0.8.5"
 ff = "0.13.0"
 sha2 = "0.10"
 argon2 = "0.5.1"
 hkdf = "0.12.3"
 hmac = "0.12.1"
-curve25519-dalek = "4.0.0"
+curve25519-dalek = { version = "4.0.0", features = ["rand_core"] }
 elliptic-curve = { version = "0.13.5", features = ["hash2curve"] }
 generic-array = "0.14.7"
 typenum = "1.16.0"
