@@ -8,7 +8,5 @@ pub trait Payload: Clone {
 
     fn to_bytes(&self) -> Result<Bytes<Self::Len>>;
 
-    fn from_bytes(buf: &Bytes<Self::Len>) -> Result<Self>
-    where
-        Self: Sized;
+    fn from_bytes(buf: &Bytes<Self::Len>) -> Result<Self>;
 }
