@@ -15,9 +15,7 @@ use crate::{
         AuthRequest, AuthResponse, CredentialRequest, CredentialResponse, Envelope, KeyExchange1,
         KeyExchange2, KeyExchange3, RegistrationRecord, RegistrationRequest, RegistrationResponse,
     },
-    oprf,
-    payload::Payload,
-    primitives, Result,
+    oprf, primitives, Result,
 };
 
 /// Options for specifying custom identifiers
@@ -29,29 +27,28 @@ pub struct Identifiers<'a> {
     pub server: Option<&'a [u8]>,
 }
 
-pub struct ClientRegistrationFlow<'a, Payload, Rng: CryptoRng + RngCore> {
+pub struct ClientRegistrationFlow<'a, Rng: CryptoRng + RngCore> {
     client_identity: &'a str,
     password: &'a [u8],
     server_public_key: &'a PublicKey,
-    payload: &'a Payload,
+    payload: &'a [u8],
     server_identity: Option<&'a str>,
     blinding_key: Option<Scalar>,
     rng: Rng,
 }
 
-impl<'a, P, Rng> ClientRegistrationFlow<'a, P, Rng>
+impl<'a, Rng> ClientRegistrationFlow<'a, Rng>
 where
-    P: Payload,
     Rng: CryptoRng + RngCore,
 {
     pub fn new(
         client_identity: &'a str,
         password: &'a [u8],
         server_public_key: &'a PublicKey,
-        payload: &'a P,
+        payload: &'a [u8],
         server_identity: Option<&'a str>,
         rng: Rng,
-    ) -> ClientRegistrationFlow<'a, P, Rng> {
+    ) -> ClientRegistrationFlow<'a, Rng> {
         ClientRegistrationFlow {
             client_identity,
             password,
@@ -77,7 +74,7 @@ where
         &self,
         response: &RegistrationResponse,
         stretch: Stretch,
-    ) -> Result<(RegistrationRecord<P>, Digest)>
+    ) -> Result<(RegistrationRecord, Digest)>
     where
         Stretch: Fn(&[u8]) -> Result<Digest>,
     {
@@ -94,7 +91,7 @@ where
             self.server_public_key,
             self.server_identity,
             Some(&self.client_identity[..]),
-            self.payload.clone(),
+            self.payload,
         )
     }
 
@@ -105,8 +102,8 @@ where
         server_public_key: &PublicKey,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-        payload: P,
-    ) -> Result<(RegistrationRecord<P>, Digest)> {
+        payload: &'a [u8],
+    ) -> Result<(RegistrationRecord, Digest)> {
         let mut nonce = Nonce::default();
         rng.fill_bytes(&mut nonce);
 
@@ -132,7 +129,7 @@ where
             envelope: Envelope { nonce, auth_tag },
             masking_key,
             client_public_key: client_keypair.public_key.clone(),
-            payload,
+            payload: payload.to_vec(),
         };
 
         Ok((registration_record, export_key))
@@ -156,10 +153,7 @@ impl<'a> ServerRegistrationFlow<'a> {
         }
     }
 
-    pub fn finish<P>(&self, _record: &RegistrationRecord<P>)
-    where
-        P: Payload,
-    {
+    pub fn finish(&self, _record: &RegistrationRecord) {
         // we need to decide what to do here
     }
 }
@@ -223,10 +217,10 @@ where
     }
 
     /// Corresponds to GenerateKE3
-    pub fn finish<P: Payload, S>(
+    pub fn finish<S>(
         &self,
         server_identity: Option<&str>,
-        ke2: &KeyExchange2<P>,
+        ke2: &KeyExchange2,
         stretch: S,
     ) -> Result<(KeyExchange3, AuthCode, Digest)>
     where
@@ -250,13 +244,13 @@ where
         Ok((ke3, session_key, export_key))
     }
 
-    fn recover_credentials<P: Payload, S>(
+    fn recover_credentials<S>(
         password: &[u8],
         blinding_key: &Scalar,
         response: &CredentialResponse,
         server_identity: Option<&str>,
         client_identity: &str,
-        payload: &P,
+        payload: &[u8],
         stretch: S,
     ) -> Result<(SecretKey, CleartextCredentials, PublicKey, Digest)>
     where
@@ -297,13 +291,13 @@ where
         ))
     }
 
-    fn recover<P: Payload>(
+    fn recover(
         randomized_pwd: &Kdf,
         server_public_key: &PublicKey,
         envelope: &Envelope,
         server_identity: Option<&str>,
         client_identity: Option<&str>,
-        payload: &P,
+        payload: &[u8],
     ) -> Result<(SecretKey, CleartextCredentials, Digest)> {
         let auth_key: Digest =
             primitives::expand(randomized_pwd, &[&envelope.nonce, STR_AUTH_KEY])?;
@@ -335,11 +329,11 @@ where
         }
     }
 
-    fn auth_client_finalize<P: Payload>(
+    fn auth_client_finalize(
         &self,
         cleartext_credentials: &CleartextCredentials,
         client_private_key: &SecretKey,
-        ke2: &KeyExchange2<P>,
+        ke2: &KeyExchange2,
     ) -> Result<(KeyExchange3, AuthCode)> {
         let client_secret = self.client_secret.as_ref().expect("uninitialized");
         let ke1_serialized = self.ke1_serialized.as_ref().expect("uninitialized");
@@ -397,30 +391,28 @@ impl ServerLoginState {
     }
 }
 
-pub struct ServerLoginFlow<'a, P, Rng>
+pub struct ServerLoginFlow<'a, Rng>
 where
-    P: Payload,
     Rng: CryptoRng + RngCore,
 {
     server_public_key: &'a PublicKey,
     server_identity: Option<&'a str>,
     ke_keypair: &'a KeyPair,
-    record: &'a RegistrationRecord<P>,
+    record: &'a RegistrationRecord,
     ke1: &'a KeyExchange1,
     client_identity: &'a str,
     rng: Rng,
 }
 
-impl<'a, P, Rng> ServerLoginFlow<'a, P, Rng>
+impl<'a, Rng> ServerLoginFlow<'a, Rng>
 where
-    P: Payload,
     Rng: CryptoRng + RngCore,
 {
     pub fn new(
         server_public_key: &'a PublicKey,
         server_identity: Option<&'a str>,
         ke_keypair: &'a KeyPair,
-        record: &'a RegistrationRecord<P>,
+        record: &'a RegistrationRecord,
         ke1: &'a KeyExchange1,
         client_identity: &'a str,
         rng: Rng,
@@ -437,7 +429,7 @@ where
     }
 
     /// Corresponds to GenerateKE2
-    pub fn start(&mut self, evaluated_element: Gt) -> Result<(ServerLoginState, KeyExchange2<P>)> {
+    pub fn start(&mut self, evaluated_element: Gt) -> Result<(ServerLoginState, KeyExchange2)> {
         let credential_response = Self::create_credential_response(
             &mut self.rng,
             self.server_public_key,
@@ -485,7 +477,7 @@ where
     fn create_credential_response<R: CryptoRng + RngCore>(
         rng: &mut R,
         server_public_key: &PublicKey,
-        record: &RegistrationRecord<P>,
+        record: &RegistrationRecord,
         evaluated_element: Gt,
     ) -> Result<CredentialResponse> {
         let mut masking_nonce = Nonce::default();
@@ -617,18 +609,18 @@ fn create_cleartext_credentials(
     }
 }
 
-fn construct_auth_tag<P: Payload>(
+fn construct_auth_tag(
     auth_key: &[u8],
     cleartext_credentials: &CleartextCredentials,
     nonce: &[u8],
-    payload: &P,
+    payload: &[u8],
 ) -> Result<AuthCode> {
     let mut hmac = Mac::new_from_slice(&auth_key).map_err(|_| InternalError::HmacError)?;
     hmac.update(nonce);
     hmac.update(&cleartext_credentials.server_public_key);
     hmac.update(&cleartext_credentials.server_identity);
     hmac.update(&cleartext_credentials.client_identity);
-    hmac.update(&payload.to_bytes()?);
+    hmac.update(payload);
     Ok(hmac.finalize().into_bytes())
 }
 

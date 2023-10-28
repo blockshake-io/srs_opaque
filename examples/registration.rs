@@ -3,14 +3,13 @@ use ff::Field;
 use rand::rngs::ThreadRng;
 use srs_opaque::{
     ciphersuite::{Bytes, Digest},
-    error::InternalError,
+    error::{Error, InternalError},
     opaque::{ClientLoginFlow, ClientRegistrationFlow, ServerLoginFlow, ServerRegistrationFlow},
     oprf,
-    payload::Payload,
     primitives::derive_keypair,
     Result,
 };
-use typenum::{U20, U4, U8};
+use typenum::{Unsigned, U20, U4, U8};
 use zeroize::ZeroizeOnDrop;
 
 #[derive(Clone, ZeroizeOnDrop)]
@@ -21,10 +20,8 @@ pub struct KsfParams {
     output_len: Option<usize>,
 }
 
-impl Payload for KsfParams {
-    type Len = U20;
-
-    fn to_bytes(&self) -> Result<Bytes<Self::Len>> {
+impl KsfParams {
+    fn to_bytes(&self) -> Result<Bytes<U20>> {
         use generic_array::sequence::Concat;
         let mut m_cost = Bytes::<U4>::default();
         let mut t_cost = Bytes::<U4>::default();
@@ -37,10 +34,13 @@ impl Payload for KsfParams {
         Ok(m_cost.concat(t_cost).concat(p_cost).concat(output_len))
     }
 
-    fn from_bytes(buf: &Bytes<Self::Len>) -> Result<Self>
+    fn from_bytes(buf: &[u8]) -> Result<Self>
     where
         Self: Sized,
     {
+        if buf.len() != U20::to_usize() {
+            return Err(Error::Internal(InternalError::DeserializeError));
+        }
         let m_cost = u32::from_be_bytes(buf[0..4].try_into().unwrap());
         let t_cost = u32::from_be_bytes(buf[4..8].try_into().unwrap());
         let p_cost = u32::from_be_bytes(buf[8..12].try_into().unwrap());
@@ -88,6 +88,7 @@ fn main() -> Result<()> {
         t_cost: 1,
         output_len: None,
     };
+    let ksf_params_bytes = ksf_params.to_bytes()?;
 
     //////////////////////
     //// Registration ////
@@ -96,11 +97,11 @@ fn main() -> Result<()> {
     // STEP 1: initiate registration on client
     let username = "my_username";
     let password = b"password";
-    let mut client_flow = ClientRegistrationFlow::<KsfParams, ThreadRng>::new(
+    let mut client_flow = ClientRegistrationFlow::<ThreadRng>::new(
         username,
         password,
         &server_keypair.public_key,
-        &ksf_params,
+        &ksf_params_bytes[..],
         Some(server_identity),
         rand::thread_rng(),
     );
@@ -163,7 +164,8 @@ fn main() -> Result<()> {
     let (state, ke2) = server_flow.start(evaluated_element)?;
 
     // STEP 3: finalize on client
-    let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ke2.payload);
+    let ksf_params = KsfParams::from_bytes(&ke2.payload[..])?;
+    let ksf_stretch = |input: &[u8]| argon2_stretch(input, &ksf_params);
     let (ke3, client_session_key, export_key) =
         client_flow.finish(Some(server_identity), &ke2, ksf_stretch)?;
 

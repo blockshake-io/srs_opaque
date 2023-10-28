@@ -253,3 +253,20 @@ pub mod b64_scalar {
         }
     }
 }
+
+pub mod b64_payload {
+    use base64::Engine;
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        let b64 = super::b64_encode(&v[..]);
+        String::serialize(&b64, s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&String::deserialize(d)?)
+            .map_err(|_| serde::de::Error::custom("Could not deserialize payload"))
+    }
+}

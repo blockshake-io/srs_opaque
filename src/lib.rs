@@ -4,7 +4,6 @@ pub mod keypair;
 pub mod messages;
 pub mod opaque;
 pub mod oprf;
-pub mod payload;
 pub mod primitives;
 pub mod serialization;
 pub mod shamir;

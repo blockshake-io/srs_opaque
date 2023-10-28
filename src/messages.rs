@@ -13,7 +13,6 @@ use crate::{
     },
     error::InternalError,
     keypair::PublicKey,
-    payload::Payload,
     serialization, Result,
 };
 
@@ -46,7 +45,7 @@ impl Envelope {
 }
 
 #[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
-pub struct RegistrationRecord<P: Payload> {
+pub struct RegistrationRecord {
     #[serde(with = "serialization::b64_envelope")]
     pub envelope: Envelope,
     #[serde(with = "serialization::b64_digest")]
@@ -55,11 +54,12 @@ pub struct RegistrationRecord<P: Payload> {
     #[serde(with = "serialization::b64_public_key")]
     pub client_public_key: PublicKey,
     #[zeroize(skip)]
-    pub payload: P,
+    #[serde(with = "serialization::b64_payload")]
+    pub payload: Vec<u8>,
 }
 
-impl<P: Payload> RegistrationRecord<P> {
-    pub fn fake<R: CryptoRngCore>(rng: &mut R, payload: P) -> Self {
+impl RegistrationRecord {
+    pub fn fake<R: CryptoRngCore>(rng: &mut R, payload: Vec<u8>) -> Self {
         let mut masking_key = Digest::default();
         masking_key.fill_with(|| rng.gen());
         Self {
@@ -162,11 +162,11 @@ pub struct AuthResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
-pub struct KeyExchange2<P: Payload> {
+pub struct KeyExchange2 {
     pub credential_response: CredentialResponse,
     pub auth_response: AuthResponse,
     #[zeroize(skip)]
-    pub payload: P,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ZeroizeOnDrop)]
