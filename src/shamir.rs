@@ -55,6 +55,10 @@ pub fn generate_secrets(threshold: u64, nr_shares: u64) -> Result<(Scalar, Vec<S
     let threshold = threshold as usize;
     let nr_shares = nr_shares as usize;
 
+    if threshold > nr_shares {
+        return Err(Error::Internal(InternalError::ShamirSharingError));
+    }
+
     let mut coefficients = Vec::<Scalar>::with_capacity(threshold);
     for _ in 0..threshold {
         coefficients.push(Scalar::random(rand::thread_rng()));
