@@ -37,6 +37,17 @@ impl SecretKey {
     pub fn serialize(&self) -> SecretKeyBytes {
         self.0.to_bytes().into()
     }
+
+    pub fn deserialize(buf: &[u8]) -> Result<SecretKey> {
+        let buf: &[u8; 32] = buf.try_into()
+            .map_err(|_| InternalError::DeserializeError)?;
+        let res = Scalar::from_canonical_bytes(*buf);
+        if res.is_some().into() {
+            Ok(SecretKey(res.unwrap()))
+        } else {
+            Err(InternalError::DeserializeError.into())
+        }
+    }
 }
 
 #[derive(ZeroizeOnDrop)]
@@ -52,5 +63,9 @@ impl KeyPair {
             secret_key: SecretKey(sk),
             public_key: PublicKey(RistrettoPoint::mul_base(&sk)),
         }
+    }
+
+    pub fn random<R: CryptoRngCore>(rng: &mut R) -> Self {
+        Self::from_secret_key(Scalar::random(rng))
     }
 }

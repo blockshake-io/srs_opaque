@@ -81,8 +81,7 @@ pub mod b64_public_key {
     use crate::{ciphersuite::LenKePublicKey, keypair::PublicKey};
 
     pub fn serialize<S: Serializer>(v: &PublicKey, s: S) -> Result<S::Ok, S::Error> {
-        let b64 = super::b64_encode(&v.serialize()[..]);
-        String::serialize(&b64, s)
+        String::serialize(&encode(v), s)
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<PublicKey, D::Error> {
@@ -90,9 +89,41 @@ pub mod b64_public_key {
             .map_err(|_| serde::de::Error::custom("Deserialization error for public key"))
     }
 
+    pub fn encode(v: &PublicKey) -> String {
+        super::b64_encode(&v.serialize()[..])
+    }
+
     pub fn decode(input: &str) -> Result<PublicKey, error::Error> {
         let buf: GenericArray<u8, LenKePublicKey> = super::b64_decode(input)?;
         Ok(PublicKey::deserialize(&buf[..])?)
+    }
+}
+
+pub mod b64_secret_key {
+    use crate::error;
+
+    use generic_array::GenericArray;
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    use crate::{ciphersuite::LenKePublicKey, keypair::SecretKey};
+
+    pub fn serialize<S: Serializer>(v: &SecretKey, s: S) -> Result<S::Ok, S::Error> {
+        String::serialize(&encode(v), s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SecretKey, D::Error> {
+        decode(&String::deserialize(d)?)
+            .map_err(|_| serde::de::Error::custom("Deserialization error for public key"))
+    }
+
+    pub fn encode(v: &SecretKey) -> String {
+        super::b64_encode(&v.serialize()[..])
+    }
+
+    pub fn decode(input: &str) -> Result<SecretKey, error::Error> {
+        let buf: GenericArray<u8, LenKePublicKey> = super::b64_decode(input)?;
+        Ok(SecretKey::deserialize(&buf[..])?)
     }
 }
 
