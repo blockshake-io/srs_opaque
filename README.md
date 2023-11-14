@@ -11,7 +11,10 @@ differences:
   store the configuration for the key-stretching function (KSF), e.g.,
   [Argon2](4).
 
+Development of SRS is funded by Protocol Labs through the [RFP-014 Research Grant][5].
+
 [1]: https://www.ietf.org/archive/id/draft-irtf-cfrg-opaque-11.html
 [2]: https://github.com/blockshake-io/srs
 [3]: https://github.com/facebook/opaque-ke
 [4]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id
+[5]: https://github.com/protocol/research-grants/blob/master/RFPs/rfp-014-private-retrieval-of-data.md
